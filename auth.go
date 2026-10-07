@@ -60,6 +60,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// No form-action: browsers apply it to redirects after a form POST, which
 	// would block the redirect back to the protected app.
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+	w.Header().Set("X-Frame-Options", "DENY") // legacy twin of frame-ancestors
+	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+	if s.cfg.secureCookie {
+		// No includeSubDomains: the apps on sibling hosts may not all be https.
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+	}
 	s.mux.ServeHTTP(&errorWriter{ResponseWriter: w, s: s, r: r}, r)
 }
 

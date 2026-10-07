@@ -384,6 +384,26 @@ func TestCSPAllowsPostLoginRedirect(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	s, _ := newTestServer(t)
+	for _, path := range []string{"/login", "/", "/nope"} {
+		w := do(s, "GET", path, nil)
+		for _, h := range []string{"Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Cross-Origin-Opener-Policy", "Permissions-Policy"} {
+			if w.Header().Get(h) == "" {
+				t.Errorf("%s: missing %s", path, h)
+			}
+		}
+	}
+	s.cfg.secureCookie = false
+	if h := do(s, "GET", "/login", nil).Header().Get("Strict-Transport-Security"); h != "" {
+		t.Errorf("HSTS set over http: %q", h)
+	}
+	s.cfg.secureCookie = true
+	if h := do(s, "GET", "/login", nil).Header().Get("Strict-Transport-Security"); h == "" || strings.Contains(h, "includeSubDomains") {
+		t.Errorf("HSTS over https: %q", h)
+	}
+}
+
 func sessionCookie(s *Server, email string) *http.Cookie {
 	v := s.sign(claims{Kind: kindSession, Email: email, Expires: s.now().Add(time.Hour).Unix()})
 	return &http.Cookie{Name: "sesame", Value: v}
