@@ -2,12 +2,12 @@
 
 # sesame
 
-A tiny email one-time-token SSO for [Caddy](https://caddyserver.com)'s `forward_auth`.
+**Tiny email one-time-token and passkey SSO for [Caddy](https://caddyserver.com)'s `forward_auth`.**
 
 No external database and no identity provider. Users sign in with a numeric code sent over SMTP — or,
 once they have registered one, with a passkey — and get a signed session cookie that works across all
 your subdomains. Access is controlled per host with a few lines of TOML. `sesame` is a single Go
-binary with one config file; passkeys, when enabled, live in one local key/value file.
+binary with one config file; passkeys, when enabled, live in one local key/value file next to it.
 
 ## Features
 
@@ -23,7 +23,7 @@ binary with one config file; passkeys, when enabled, live in one local key/value
 - **Multilingual**: English and German pages and emails. The language follows a switcher cookie, then the
   browser's `Accept-Language`, then `default_language`. To add one, drop in `locales/<lang>.toml` and
   `templates/mail.<lang>.txt`.
-- **Small**: one Go binary, one config file
+- **Small**: one Go binary, one config file, four direct dependencies, no cgo.
 
 ## How it works
 
@@ -33,17 +33,15 @@ binary with one config file; passkeys, when enabled, live in one local key/value
 3. The user enters the code (or completes the passkey prompt) and receives a session cookie shared across `cookie_domain`.
 4. `/verify` checks the `[[access]]` rules for the requested host (`X-Forwarded-Host`). It returns `403` if
    nothing matches, otherwise `200` with the headers `Remote-User`, `Remote-Email`, `Remote-Name` and `Remote-Groups`.
-5. Once signed in, the index page lists the user's passkeys and lets them add or remove them.
+5. Once signed in, the index page shows the user's account details and passkeys, and lets them add or remove passkeys.
 
-## Usage
+## Quick start
 
 ```sh
 go build -o sesame .
-cp config.example.toml sesame.toml   # edit to taste
-./sesame -config sesame.toml
 ```
 
-Then add Caddy configuration like [`Caddyfile.example`](Caddyfile.example):
+Point Caddy at it ([`Caddyfile.example`](Caddyfile.example)):
 
 ```caddyfile
 auth.example.com {
@@ -59,14 +57,34 @@ app.example.com {
 }
 ```
 
+Then write a config and run it:
+
+```sh
+cp config.example.toml sesame.toml
+sed -i "s|change-me-to-at-least-32-random-bytes!|$(openssl rand -base64 32)|" sesame.toml
+$EDITOR sesame.toml             # listen, external_url, cookie_domain, [smtp], [[users]], [[access]]
+./sesame -config sesame.toml
+```
+
+The portal is served at `external_url`; every other host is protected by adding an `[[access]]` rule
+and putting it behind `forward_auth`. To keep the secret out of the config file, set `secret_file`
+instead of `secret`.
+
 ## Configuration
 
-See [`config.example.toml`](config.example.toml) for all options. The essentials:
+See [`config.example.toml`](config.example.toml) for every option and its default. The essentials:
 
 ```toml
 listen       = "127.0.0.1:9091"
 external_url = "https://auth.example.com"   # where the login portal is served
-secret       = "change-me-to-at-least-32-random-bytes!"  # or secret_file = "..."
+secret       = "change-me-to-at-least-32-random-bytes!"  # 32+ bytes, or use secret_file = "..."
+
+[smtp]                          # see config.example.toml; host and from are required
+host     = "smtp.example.com"
+tls      = "starttls"
+username = "auth@example.com"
+password = "app-password"
+from     = "Sesame <auth@example.com>"
 
 [session]
 cookie_domain = "example.com"   # parent domain shared by the portal and all apps
@@ -85,12 +103,15 @@ subject = ["group:dev"]         # "user:<email>", "group:<name>", or "*"
 
 `rp_id` defaults to `session.cookie_domain`, which is what lets one passkey cover the portal and its
 siblings. `store` must point at a writable path; sesame creates the file (mode `0600`) on first start.
+SMTP is configured in the `[smtp]` block: `host`, optional `port` (defaults to 587 for `starttls`,
+465 for `tls`, 25 for `none`), `tls`, `username`, `password` and `from`. Unknown keys are rejected at
+startup, so a typo fails loudly rather than silently taking a default.
 
 ## Endpoints
 
 | Path       | Purpose                                                       |
 |------------|---------------------------------------------------------------|
-| `/`        | Login state, passkey management, and sign-out button          |
+| `/`        | Account details, passkey management, and sign-out button      |
 | `/verify`  | `forward_auth` target for Caddy                               |
 | `/login`   | Email form and the passkey sign-in button                     |
 | `/token`   | Code entry form                                               |
@@ -101,6 +122,7 @@ siblings. `store` must point at a writable path; sesame creates the file (mode `
 | `/lang`    | `?set=de&rd=/path` stores the language cookie and redirects   |
 | `/logout`  | `POST` signs out; `GET` just redirects home                   |
 | `/healthz` | Health check                                                  |
+| `/icon.svg`, `/apple-touch-icon.png` | Embedded icons for browsers and home screens |
 
 Errors, including the `403` that `/verify` returns to Caddy, are rendered as friendly HTML pages.
 The passkey endpoints answer JSON instead, since only the page script calls them.
@@ -131,21 +153,27 @@ The passkey endpoints answer JSON instead, since only the page script calls them
 
 ## Requirements
 
-- Go (to build) and an SMTP server for sending codes
+- Go 1.27 or newer (to build) and an SMTP server for sending codes
 - Caddy, or any reverse proxy with a `forward_auth`-style subrequest
 - HTTPS for passkeys (browsers only run WebAuthn in a secure context; `localhost` counts)
 
-## Running the tests
+## Development
 
 ```sh
-go test ./...
+go vet ./...      # must be clean
+go test ./...     # hermetic suite: httptest servers and a fake SMTP listener on loopback
+go build -o sesame .
 ```
 
-## Development notes
+The suite needs no network, no config file and no environment variables. `templates/` and `locales/`
+are embedded with `go:embed`, so rebuild after editing them and don't trust an already-running binary
+when checking markup or copy. Contributions follow [`AGENTS.md`](AGENTS.md): new pages or emails need
+a template, keys in `locales/en.toml` and `locales/de.toml`, and a `templates/mail.<lang>.txt`. Add a
+test with each behavior change.
 
 Parts of this project were written with AI assistance. The models involved:
 
-- Claude Sonnet 5.5 
+- Claude Sonnet 5.5
 - DeepSeek Flash
 
 ## License
