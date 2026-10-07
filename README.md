@@ -120,7 +120,7 @@ startup, so a typo fails loudly rather than silently taking a default.
 | `/passkeys/delete` | Remove one of your passkeys (`POST`, signed in)       |
 | `/passkeys.js` | Page script that drives the passkey ceremonies            |
 | `/lang`    | `?set=de&rd=/path` stores the language cookie and redirects   |
-| `/logout`  | `POST` signs out; `GET` just redirects home                   |
+| `/logout`  | `POST` signs out                                              |
 | `/healthz` | Health check                                                  |
 | `/icon.svg`, `/apple-touch-icon.png` | Embedded icons for browsers and home screens |
 

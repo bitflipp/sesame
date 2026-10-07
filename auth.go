@@ -94,7 +94,6 @@ func NewServer(cfg *Config, sender Sender) (*Server, error) {
 	s.mux.HandleFunc("POST /token", s.handleTokenSubmit)
 	s.mux.HandleFunc("GET /{$}", s.handleIndex)
 	s.mux.HandleFunc("GET /lang", s.handleLang)
-	s.mux.HandleFunc("GET /logout", s.handleLogout)
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
 	s.mux.HandleFunc("GET /icon.svg", serveIcon("icon.svg", "image/svg+xml"))
 	s.mux.HandleFunc("GET /apple-touch-icon.png", serveIcon("apple-touch-icon.png", "image/png"))

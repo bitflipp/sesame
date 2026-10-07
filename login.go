@@ -216,13 +216,9 @@ func (s *Server) handleTokenSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, rd, http.StatusSeeOther)
 }
 
-// handleLogout clears the session. It is POST-only so that a third-party page
-// can't sign users out via an image or link; GET just goes home.
+// handleLogout clears the session. Its route is POST-only so that a third-party
+// page can't sign users out via an image or link.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
 	if !s.sameOrigin(r) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return

@@ -451,9 +451,9 @@ func TestLogout(t *testing.T) {
 	if cleared == nil || cleared.MaxAge >= 0 || cleared.Value != "" || cleared.Domain != "example.com" {
 		t.Errorf("session not cleared: %+v", cleared)
 	}
-	// GET must not log out.
-	if w = do(s, "GET", "/logout", nil, c); cookieByName(w, "sesame") != nil {
-		t.Error("GET /logout cleared the session")
+	// Only POST is routed, so GET is rejected and must not clear the session.
+	if w = do(s, "GET", "/logout", nil, c); w.Code != http.StatusMethodNotAllowed || cookieByName(w, "sesame") != nil {
+		t.Errorf("GET /logout: %d, cookie %v", w.Code, cookieByName(w, "sesame"))
 	}
 	// Cross-site POST is rejected.
 	r := httptest.NewRequest("POST", "/logout", nil)
