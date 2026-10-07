@@ -113,6 +113,18 @@ Errors, including the `403` that `/verify` returns to Caddy, are rendered as fri
 go test ./...
 ```
 
+## Development notes
+
+Parts of this project were written with AI assistance. The models involved:
+
+| Model | Contribution |
+|-------|--------------|
+| Claude Sonnet 5.5 | Initial implementation, internationalization, and the security-hardening pass |
+| DeepSeek Flash | The `AGENTS.md` contributor guidance |
+
+AI co-author trailers were deliberately removed from the commit messages, so this section is the
+record of that attribution instead.
+
 ## License
 
 [MIT](LICENSE)
