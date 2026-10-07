@@ -45,7 +45,9 @@ func NewServer(cfg *Config, sender Sender) *Server {
 	s.mux.HandleFunc("POST /login", s.handleLoginSubmit)
 	s.mux.HandleFunc("GET /token", s.handleTokenForm)
 	s.mux.HandleFunc("POST /token", s.handleTokenSubmit)
-	s.mux.HandleFunc("/logout", s.handleLogout)
+	s.mux.HandleFunc("GET /{$}", s.handleIndex)
+	s.mux.HandleFunc("GET /logout", s.handleLogout)
+	s.mux.HandleFunc("POST /logout", s.handleLogout)
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok\n")) })
 	return s
 }
@@ -57,7 +59,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// No form-action: browsers apply it to redirects after a form POST, which
 	// would block the redirect back to the protected app.
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-	s.mux.ServeHTTP(w, r)
+	s.mux.ServeHTTP(&errorWriter{ResponseWriter: w, s: s}, r)
 }
 
 func (s *Server) sign(c claims) string {
@@ -136,7 +138,7 @@ func (s *Server) session(r *http.Request) (User, bool) {
 func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 	if u, ok := s.session(r); ok {
 		if !s.cfg.Authorize(u, r.Header.Get("X-Forwarded-Host")) {
-			http.Error(w, "forbidden auth", http.StatusForbidden)
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		name := u.Name

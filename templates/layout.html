@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in</title>
+<title>{{or .Title "Sesame"}}</title>
 <style>
 :root { color-scheme: light dark; }
 body { font: 16px/1.5 system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; }
@@ -12,6 +12,7 @@ h1 { font-size: 1.4rem; }
 input, button { font: inherit; padding: .6rem .8rem; width: 100%; box-sizing: border-box; margin-top: .5rem; }
 button { cursor: pointer; }
 .err { color: #c00; }
+.code { font-size: 3rem; font-weight: 700; opacity: .3; margin: 0; }
 .muted { opacity: .7; font-size: .9rem; }
 </style>
 </head>

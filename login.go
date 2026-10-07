@@ -14,15 +14,74 @@ var templateFS embed.FS
 var pages = map[string]*template.Template{}
 
 func init() {
-	for _, p := range []string{"login", "token", "done"} {
+	for _, p := range []string{"login", "token", "index", "error"} {
 		pages[p] = template.Must(template.ParseFS(templateFS, "templates/layout.html", "templates/"+p+".html"))
 	}
 }
 
 type pageData struct {
+	Title string
 	Email string
 	RD    string
 	Error string
+	User  *User  // index: the signed-in user, if any
+	Code  int    // error: HTTP status
+	Msg   string // error: friendly explanation
+	Home  string // error: absolute link to the portal
+}
+
+var errorMessages = map[int][2]string{
+	http.StatusBadRequest:          {"Bad request", "Something was wrong with that request. Please go back and try again."},
+	http.StatusForbidden:           {"Access denied", "You don't have permission to view this page. If you think that's a mistake, ask whoever manages access."},
+	http.StatusNotFound:            {"Page not found", "We couldn't find the page you were looking for."},
+	http.StatusMethodNotAllowed:    {"Not allowed", "That page can't be used this way."},
+	http.StatusTooManyRequests:     {"Slow down", "Too many attempts. Please wait a moment and try again."},
+	http.StatusInternalServerError: {"Something went wrong", "An unexpected error occurred on our side. Please try again in a moment."},
+}
+
+// renderError writes a friendly error page for the given status.
+func (s *Server) renderError(w http.ResponseWriter, code int) {
+	m, ok := errorMessages[code]
+	if !ok {
+		m = [2]string{"Something went wrong", "The request could not be completed."}
+		if code >= 500 {
+			m = errorMessages[http.StatusInternalServerError]
+		}
+	}
+	s.render(w, code, "error", pageData{Title: m[0], Msg: m[1], Code: code, Home: s.cfg.external.String()})
+}
+
+// errorWriter swaps the plain-text bodies written by http.Error and
+// http.ServeMux (404/405) for the friendly error page.
+type errorWriter struct {
+	http.ResponseWriter
+	s       *Server
+	swapped bool
+}
+
+func (e *errorWriter) WriteHeader(code int) {
+	if code >= 400 && strings.HasPrefix(e.Header().Get("Content-Type"), "text/plain") {
+		e.swapped = true
+		e.Header().Del("Content-Length")
+		e.s.renderError(e.ResponseWriter, code)
+		return
+	}
+	e.ResponseWriter.WriteHeader(code)
+}
+
+func (e *errorWriter) Write(b []byte) (int, error) {
+	if e.swapped {
+		return len(b), nil
+	}
+	return e.ResponseWriter.Write(b)
+}
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	d := pageData{Title: "Sesame"}
+	if u, ok := s.session(r); ok {
+		d.User = &u
+	}
+	s.render(w, http.StatusOK, "index", d)
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, page string, d pageData) {
@@ -55,10 +114,10 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, rd, http.StatusFound)
 			return
 		}
-		s.render(w, http.StatusOK, "done", pageData{})
+		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	s.render(w, http.StatusOK, "login", pageData{RD: rd})
+	s.render(w, http.StatusOK, "login", pageData{Title: "Sign in", RD: rd})
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +128,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	rd := s.safeRedirect(r.FormValue("rd"))
 	email, err := normalizeEmail(r.FormValue("email"))
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "login", pageData{RD: rd, Error: "Please enter a valid email address."})
+		s.render(w, http.StatusBadRequest, "login", pageData{Title: "Sign in", RD: rd, Error: "Please enter a valid email address."})
 		return
 	}
 
@@ -112,7 +171,7 @@ func (s *Server) handleTokenForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?"+url.Values{"rd": {rd}}.Encode(), http.StatusSeeOther)
 		return
 	}
-	s.render(w, http.StatusOK, "token", pageData{Email: email, RD: rd})
+	s.render(w, http.StatusOK, "token", pageData{Title: "Enter your code", Email: email, RD: rd})
 }
 
 func (s *Server) handleTokenSubmit(w http.ResponseWriter, r *http.Request) {
@@ -128,20 +187,30 @@ func (s *Server) handleTokenSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	code := strings.Join(strings.Fields(r.FormValue("token")), "")
 	if _, allowed := s.cfg.Lookup(email); !allowed || !s.otp.Verify(email, code) {
-		s.render(w, http.StatusUnauthorized, "token", pageData{Email: email, RD: rd, Error: "That code is invalid or has expired."})
+		s.render(w, http.StatusUnauthorized, "token", pageData{Title: "Enter your code", Email: email, RD: rd, Error: "That code is invalid or has expired."})
 		return
 	}
 	s.setSession(w, email)
 	s.setCookie(w, s.pendingCookieName(), "", "", "strict", -1)
 	if rd == "" {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, rd, http.StatusSeeOther)
 }
 
+// handleLogout clears the session. It is POST-only so that a third-party page
+// can't sign users out via an image or link; GET just goes home.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	if !s.sameOrigin(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	s.setCookie(w, s.cfg.Session.CookieName, "", s.cfg.Session.CookieDomain, "lax", -1)
 	s.setCookie(w, s.pendingCookieName(), "", "", "strict", -1)
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

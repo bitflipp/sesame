@@ -383,3 +383,80 @@ func TestCSPAllowsPostLoginRedirect(t *testing.T) {
 		t.Errorf("form-action would block the redirect to the app: %s", csp)
 	}
 }
+
+func sessionCookie(s *Server, email string) *http.Cookie {
+	v := s.sign(claims{Kind: kindSession, Email: email, Expires: s.now().Add(time.Hour).Unix()})
+	return &http.Cookie{Name: "sesame", Value: v}
+}
+
+func TestIndex(t *testing.T) {
+	s, _ := newTestServer(t)
+	w := do(s, "GET", "/", nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "signed out") {
+		t.Errorf("anonymous index: %d %s", w.Code, w.Body)
+	}
+	w = do(s, "GET", "/", nil, sessionCookie(s, "alice@example.com"))
+	b := w.Body.String()
+	if w.Code != 200 || !strings.Contains(b, "alice@example.com") || !strings.Contains(b, "admins, dev") || !strings.Contains(b, `action="/logout"`) {
+		t.Errorf("signed-in index: %d %s", w.Code, b)
+	}
+}
+
+func TestLogout(t *testing.T) {
+	s, _ := newTestServer(t)
+	c := sessionCookie(s, "alice@example.com")
+	w := do(s, "POST", "/logout", url.Values{}, c)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/" {
+		t.Fatalf("logout: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	var cleared *http.Cookie
+	for _, ck := range w.Result().Cookies() {
+		if ck.Name == "sesame" {
+			cleared = ck
+		}
+	}
+	if cleared == nil || cleared.MaxAge >= 0 || cleared.Value != "" || cleared.Domain != "example.com" {
+		t.Errorf("session not cleared: %+v", cleared)
+	}
+	// GET must not log out.
+	if w = do(s, "GET", "/logout", nil, c); cookieByName(w, "sesame") != nil {
+		t.Error("GET /logout cleared the session")
+	}
+	// Cross-site POST is rejected.
+	r := httptest.NewRequest("POST", "/logout", nil)
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	r.AddCookie(c)
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden || cookieByName(w, "sesame") != nil {
+		t.Errorf("cross-site logout: %d", w.Code)
+	}
+}
+
+func TestFriendlyErrors(t *testing.T) {
+	s, _ := newTestServer(t)
+	for _, tc := range []struct {
+		method, path string
+		code         int
+		want         string
+	}{
+		{"GET", "/nope", 404, "Page not found"},
+		{"PUT", "/login", 405, "Not allowed"},
+		{"DELETE", "/", 405, "Not allowed"},
+	} {
+		w := do(s, tc.method, tc.path, nil)
+		if w.Code != tc.code || !strings.Contains(w.Body.String(), tc.want) ||
+			!strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+			t.Errorf("%s %s: %d %q %s", tc.method, tc.path, w.Code, w.Header().Get("Content-Type"), w.Body)
+		}
+	}
+	// forward_auth denial carries the friendly body too.
+	r := httptest.NewRequest("GET", "/verify", nil)
+	r.AddCookie(sessionCookie(s, "bob@corp.test"))
+	r.Header.Set("X-Forwarded-Host", "app.example.com")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "Access denied") || !strings.Contains(w.Body.String(), "https://auth.example.com") {
+		t.Errorf("verify 403: %d %s", w.Code, w.Body)
+	}
+}

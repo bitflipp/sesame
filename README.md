@@ -17,4 +17,4 @@ go build -o sesame . && ./sesame -config sesame.toml
 
 See `config.example.toml` and `Caddyfile.example`. Caddy's `copy_headers` overwrites any
 client-supplied `Remote-*` headers, so upstreams can trust them as long as they are only
-reachable through Caddy. Endpoints: `/verify`, `/login`, `/token`, `/logout`, `/healthz`.
+reachable through Caddy. Endpoints: `/` (login state and sign-out button), `/verify`, `/login`, `/token`, `/logout` (POST signs out; GET just redirects home), `/healthz`. Errors, including the `403` that `/verify` returns to Caddy, are rendered as friendly HTML pages.
