@@ -41,19 +41,28 @@ func NewOTPStore(t TokenConfig) *OTPStore {
 }
 
 // Issue creates a fresh token for email, replacing any pending one. Both the
-// email and the client IP are rate limited.
+// email and the client IP are rate limited. Neither counter is charged unless
+// both are under the limit, so a request rejected by one bucket cannot consume
+// quota from the other.
 func (s *OTPStore) Issue(email, ip string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
-	for _, k := range []string{"e:" + email, "i:" + ip} {
-		recent := pruneBefore(s.issued[k], now.Add(-time.Hour))
-		if len(recent) >= s.perHour {
-			s.issued[k] = recent
-			return "", ErrRateLimited
+	cutoff := now.Add(-time.Hour)
+	emailKey, ipKey := "e:"+email, "i:"+ip
+	recentEmail := pruneBefore(s.issued[emailKey], cutoff)
+	recentIP := pruneBefore(s.issued[ipKey], cutoff)
+	if len(recentEmail) >= s.perHour || len(recentIP) >= s.perHour {
+		if len(recentEmail) > 0 {
+			s.issued[emailKey] = recentEmail
 		}
-		s.issued[k] = append(recent, now)
+		if len(recentIP) > 0 {
+			s.issued[ipKey] = recentIP
+		}
+		return "", ErrRateLimited
 	}
+	s.issued[emailKey] = append(recentEmail, now)
+	s.issued[ipKey] = append(recentIP, now)
 	code, err := randomDigits(s.length)
 	if err != nil {
 		return "", err

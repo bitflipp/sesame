@@ -20,6 +20,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if weakSecret(cfg.secretBytes) {
+		log.Printf("warning: secret has fewer than 8 distinct bytes; use 32+ bytes of random data")
+	}
+	if cfg.SMTP.TLS == "none" && !isLocalHost(cfg.SMTP.Host) {
+		log.Printf("warning: smtp.tls = \"none\": one-time codes are sent unencrypted to %s", cfg.SMTP.Host)
+	}
 	srv := NewServer(cfg, &SMTPSender{cfg: cfg.SMTP})
 
 	stop := make(chan struct{})

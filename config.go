@@ -73,6 +73,10 @@ type User struct {
 	Groups []string `toml:"groups"`
 }
 
+// placeholderSecret is the value shipped in config.example.toml. Copying it
+// would make every session cookie forgeable, so validate rejects it outright.
+const placeholderSecret = "change-me-to-at-least-32-random-bytes!"
+
 func LoadConfig(path string) (*Config, error) {
 	var c Config
 	md, err := toml.DecodeFile(path, &c)
@@ -113,6 +117,9 @@ func (c *Config) validate() error {
 	if len(secret) < 32 {
 		return errors.New("secret must be at least 32 bytes")
 	}
+	if secret == placeholderSecret {
+		return errors.New("secret is the example placeholder from config.example.toml; generate a random one")
+	}
 	c.secretBytes = []byte(secret)
 
 	if c.DefaultLanguage == "" {
@@ -145,8 +152,16 @@ func (c *Config) validate() error {
 	if s.CookieDomain == "" {
 		return errors.New("session.cookie_domain is required (the parent domain shared by the portal and your apps)")
 	}
-	if h := strings.ToLower(c.external.Hostname()); h != s.CookieDomain && !strings.HasSuffix(h, "."+s.CookieDomain) {
+	host := strings.ToLower(c.external.Hostname())
+	if host != s.CookieDomain && !strings.HasSuffix(host, "."+s.CookieDomain) {
 		return errors.New("session.cookie_domain must be the host of external_url or a parent of it")
+	}
+	// A single-label parent of the portal is a top-level domain: browsers reject
+	// cookies scoped to it, and it would put every host under that TLD in reach of
+	// the redirect logic. A single-label portal host itself (intranet deployments)
+	// is fine.
+	if labelCount(s.CookieDomain) < 2 && labelCount(s.CookieDomain) < labelCount(host) {
+		return errors.New("session.cookie_domain must not be a top-level domain (use the registrable domain, e.g. example.com)")
 	}
 	if s.Lifetime == 0 {
 		s.Lifetime = 12 * time.Hour
@@ -243,6 +258,24 @@ func normalizeEmail(s string) (string, error) {
 		return "", errors.New("invalid email address")
 	}
 	return strings.ToLower(s), nil
+}
+
+// labelCount returns the number of DNS labels in a host, ignoring a trailing dot.
+func labelCount(host string) int {
+	host = strings.TrimSuffix(host, ".")
+	if host == "" {
+		return 0
+	}
+	return strings.Count(host, ".") + 1
+}
+
+// weakSecret reports whether secret has too little variety to be a random key.
+func weakSecret(secret []byte) bool {
+	seen := map[byte]struct{}{}
+	for _, b := range secret {
+		seen[b] = struct{}{}
+	}
+	return len(seen) < 8
 }
 
 // Authorize reports whether user may access the given host.

@@ -19,7 +19,7 @@ Email one-time-token SSO meant to sit behind Caddy's `forward_auth` (see `Caddyf
 
 - `main.go` — flag parsing, `http.Server` setup, graceful shutdown; starts the `Server.Run` background sweeper.
 - `config.go` — TOML config, `validate()` (defaults + all checks), and authorization: `Lookup` (user allowlist), `Authorize` (`[[access]]` rules; additive, hosts with no matching rule are denied), `domainMatches` (exact or `*.` wildcard).
-- `auth.go` — `Server` (routing in `ServeHTTP`), HMAC-signed stateless cookies (`sign`/`parse`, a "kind" separates the session cookie from the `_pending` cookie), `/verify` handler, `clientIP` (honors `X-Forwarded-For` only from `trusted_proxies`), `safeRedirect`.
+- `auth.go` — `Server` (routing in `ServeHTTP`), HMAC-signed stateless cookies (`sign`/`parse`, a "kind" separates the session cookie from the `_pending` cookie), `/verify` handler, `clientIP` (honors `X-Forwarded-For` only from `trusted_proxies`, warns once when it ignores one), `safeLocalPath`/`safeRedirect` (redirect targets are limited to the portal host and hosts with an `[[access]]` rule).
 - `login.go` — login/token/logout/index handlers and template rendering; `errorWriter` converts error responses (incl. the 403 from `/verify`) into HTML error pages.
 - `i18n.go` — embedded `locales/*.toml` catalogs (flat keys, `en` is the fallback), `Localizer.T`, language detection (`sesame_lang` cookie, then `Accept-Language`, then `default_language`) and the `/lang` switcher. Templates and handlers refer to catalog keys, never English text; a test enforces key parity across languages.
 - `otp.go` — in-memory `OTPStore`: issuing with per-email and per-IP hourly rate limits, attempt-limited verification, sweeping.

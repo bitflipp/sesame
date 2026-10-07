@@ -1,12 +1,14 @@
 listen       = "127.0.0.1:9091"
 external_url = "https://auth.example.com"   # where the login portal is served
-secret       = "change-me-to-at-least-32-random-bytes!"  # or: secret_file = "/etc/sesame/secret"
+secret       = "change-me-to-at-least-32-random-bytes!"  # or: secret_file = "/etc/sesame/secret"; generate a random one (this placeholder is rejected)
 # default_language = "en"                       # fallback UI/email language: en, de
-# trusted_proxies = ["127.0.0.0/8", "::1/128"]  # peers whose X-Forwarded-For is believed
+# trusted_proxies = ["127.0.0.0/8", "::1/128"]  # peers whose X-Forwarded-For is believed; if the proxy
+                                                # is missing here, every client shares one rate limit
 
 [session]
 cookie_name   = "sesame"
-cookie_domain = "example.com"   # parent domain shared by the portal and all protected apps
+cookie_domain = "example.com"   # registrable domain shared by the portal and all protected apps,
+                                # e.g. example.com (a public suffix such as "com" is rejected)
 lifetime      = "12h"
 
 [token]
@@ -18,7 +20,7 @@ rate_limit_per_hour = 5        # tokens per email address and per client IP
 [smtp]
 host     = "smtp.example.com"
 port     = 587                 # default depends on tls
-tls      = "starttls"          # starttls | tls | none
+tls      = "starttls"          # starttls | tls | none ("none" sends codes unencrypted; warned at startup)
 username = "auth@example.com"
 password = "app-password"
 from     = "Sesame <auth@example.com>"

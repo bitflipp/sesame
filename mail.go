@@ -5,6 +5,7 @@ import (
 	"embed"
 	"net"
 	"net/mail"
+	"net/netip"
 	"net/smtp"
 	"strconv"
 	"strings"
@@ -63,6 +64,17 @@ func buildMessage(from, to, code string, ttl time.Duration, lang string, now tim
 	}
 	text := strings.ReplaceAll(body.String(), "\r\n", "\n")
 	return []byte(strings.Join(head, "\r\n") + strings.ReplaceAll(text, "\n", "\r\n")), nil
+}
+
+// isLocalHost reports whether host is "localhost" or a loopback address.
+func isLocalHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return ip.Unmap().IsLoopback()
+	}
+	return false
 }
 
 type SMTPSender struct {

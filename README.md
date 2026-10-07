@@ -90,7 +90,16 @@ Errors, including the `403` that `/verify` returns to Caddy, are rendered as fri
 
 - Caddy's `copy_headers` overwrites any client-supplied `Remote-*` headers, so upstreams can trust
   them as long as they are only reachable through Caddy.
-- `X-Forwarded-For` is only believed from peers listed in `trusted_proxies`.
+- `X-Forwarded-For` is only believed from peers listed in `trusted_proxies`; if the proxy is missing
+  from that list, sesame logs a warning once and every client shares one per-IP rate limit.
+- After signing in, sesame only redirects to the portal itself or to a host with an `[[access]]` rule,
+  so a crafted `rd` cannot bounce users to another site.
+- Set `session.cookie_domain` to the registrable domain (`example.com`), not a public suffix such as
+  `com` or `co.uk`; single-label domains are rejected at startup.
+- The example `secret` from `config.example.toml` is rejected; generate a random one. A secret with
+  very few distinct bytes is flagged with a startup warning.
+- `smtp.tls = "none"` sends codes unencrypted and warns at startup; use `starttls` or `tls` unless the
+  relay is on localhost.
 - Pending codes live in memory, so a restart invalidates unredeemed codes.
 
 ## Requirements

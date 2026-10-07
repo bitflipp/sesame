@@ -57,6 +57,8 @@ func do(s *Server, method, target string, form url.Values, cookies ...*http.Cook
 	if form != nil {
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
+	// Behave like a browser: same-origin non-GET requests carry Origin.
+	r.Header.Set("Origin", "https://auth.example.com")
 	for _, c := range cookies {
 		r.AddCookie(c)
 	}
@@ -166,15 +168,17 @@ func TestCookieSigning(t *testing.T) {
 func TestSafeRedirect(t *testing.T) {
 	s, _ := newTestServer(t)
 	for rd, want := range map[string]bool{
-		"https://app.example.com/x?y=1": true,
-		"https://example.com/":          true,
-		"https://evil.com/":             false,
-		"https://example.com.evil.com/": false,
-		"https://evilexample.com/":      false,
-		"//evil.com":                    false,
-		"javascript:alert(1)":           false,
-		"https://a@evil.com/":           false,
-		"/relative":                     false,
+		"https://app.example.com/x?y=1":   true, // access rule
+		"https://auth.example.com/":       true, // the portal itself
+		"https://x.internal.example.com/": true, // wildcard access rule
+		"https://example.com/":            false,
+		"https://evil.com/":               false,
+		"https://example.com.evil.com/":   false,
+		"https://evilexample.com/":        false,
+		"//evil.com":                      false,
+		"javascript:alert(1)":             false,
+		"https://a@evil.com/":             false,
+		"/relative":                       false,
 	} {
 		if got := s.safeRedirect(rd) != ""; got != want {
 			t.Errorf("safeRedirect(%q) = %v, want %v", rd, got, want)
@@ -358,7 +362,7 @@ func TestSameOrigin(t *testing.T) {
 		{"same-origin", "", true},
 		{"cross-site", "https://auth.example.com", false},
 		{"same-site", "", false},
-		{"", "", true},
+		{"", "", false}, // neither header: fail closed
 		{"", "https://auth.example.com", true},
 		{"", "https://evil.com", false},
 		{"", "null", false},
@@ -478,5 +482,50 @@ func TestFriendlyErrors(t *testing.T) {
 	s.ServeHTTP(w, r)
 	if w.Code != 403 || !strings.Contains(w.Body.String(), "Access denied") || !strings.Contains(w.Body.String(), "https://auth.example.com") {
 		t.Errorf("verify 403: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestCookieDomainRejectsTopLevelDomain(t *testing.T) {
+	base := func(ext, domain string) *Config {
+		return &Config{
+			ExternalURL: ext,
+			Secret:      strings.Repeat("k", 32),
+			Session:     SessionConfig{CookieDomain: domain},
+			SMTP:        SMTPConfig{Host: "localhost", From: "a@example.com"},
+			Users:       []User{{Email: "a@example.com"}},
+			Access:      []AccessRule{{Domain: "app.example.com", Subject: []string{"*"}}},
+		}
+	}
+	if err := base("https://auth.example.com", "com").validate(); err == nil {
+		t.Error("top-level cookie_domain accepted")
+	}
+	// A single-label portal host (e.g. an intranet name) may keep its own host.
+	if err := base("http://auth", "auth").validate(); err != nil {
+		t.Errorf("single-label deployment rejected: %v", err)
+	}
+}
+
+func TestPlaceholderSecretRejected(t *testing.T) {
+	c := &Config{
+		ExternalURL: "https://auth.example.com",
+		Secret:      placeholderSecret,
+		Session:     SessionConfig{CookieDomain: "example.com"},
+		SMTP:        SMTPConfig{Host: "localhost", From: "a@example.com"},
+		Users:       []User{{Email: "a@example.com"}},
+		Access:      []AccessRule{{Domain: "app.example.com", Subject: []string{"*"}}},
+	}
+	if err := c.validate(); err == nil {
+		t.Error("placeholder secret accepted")
+	}
+}
+
+func TestSameOriginFailsClosed(t *testing.T) {
+	s, _ := newTestServer(t)
+	r := httptest.NewRequest("POST", "/login", strings.NewReader("email=alice@example.com"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("POST with no Fetch Metadata and no Origin: status %d, want 403", w.Code)
 	}
 }

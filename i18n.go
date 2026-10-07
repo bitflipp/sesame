@@ -132,8 +132,8 @@ func (s *Server) handleLang(w http.ResponseWriter, r *http.Request) {
 		s.setCookie(w, langCookie, l, "", "lax", 365*24*3600)
 	}
 	rd := r.URL.Query().Get("rd")
-	if strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") && !strings.Contains(rd, `\`) {
-		http.Redirect(w, r, rd, http.StatusSeeOther)
+	if p := safeLocalPath(rd); p != "" {
+		http.Redirect(w, r, p, http.StatusSeeOther)
 		return
 	}
 	if rd = s.safeRedirect(rd); rd == "" {

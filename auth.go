@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -36,6 +37,10 @@ type Server struct {
 	sender Sender
 	mux    *http.ServeMux
 	now    func() time.Time
+
+	// warnUntrustedXFF rate-limits the "X-Forwarded-For ignored" warning to one
+	// line per process.
+	warnUntrustedXFF sync.Once
 }
 
 func NewServer(cfg *Config, sender Sender) *Server {
@@ -191,23 +196,50 @@ func (s *Server) handleVerify(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target.String(), http.StatusFound)
 }
 
-// safeRedirect returns rd if it points at the portal or any host under the
-// session cookie domain, and "" otherwise (prevents open redirects).
+// safeLocalPath returns rd when it is a local path that a browser cannot turn
+// into a protocol-relative ("//host") URL, and "" otherwise. ASCII controls are
+// rejected rather than stripped: browsers remove tab, CR and LF before parsing
+// a URL, so "/\t/evil.test" would otherwise be read as "//evil.test".
+func safeLocalPath(rd string) string {
+	if rd == "" || rd[0] != '/' || strings.HasPrefix(rd, "//") || strings.Contains(rd, `\`) {
+		return ""
+	}
+	for i := 0; i < len(rd); i++ {
+		if rd[i] < 0x20 || rd[i] == 0x7f {
+			return ""
+		}
+	}
+	return rd
+}
+
+// safeRedirect returns rd if it points at the portal itself or at a host with a
+// configured access rule, and "" otherwise (prevents open redirects). Tying the
+// allowed targets to the configured hosts means a too-broad cookie domain can
+// never widen the redirect surface.
 func (s *Server) safeRedirect(rd string) string {
 	u, err := url.Parse(rd)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
 		return ""
 	}
-	h := strings.ToLower(u.Hostname())
-	d := s.cfg.Session.CookieDomain
-	if h != d && !strings.HasSuffix(h, "."+d) {
+	h := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if h == "" {
 		return ""
 	}
-	return u.String()
+	if h == strings.ToLower(s.cfg.external.Hostname()) {
+		return u.String()
+	}
+	for _, r := range s.cfg.Access {
+		if domainMatches(r.Domain, h) {
+			return u.String()
+		}
+	}
+	return ""
 }
 
 // clientIP returns the peer address, or X-Forwarded-For's last hop when the
-// peer is a trusted proxy.
+// peer is a trusted proxy. X-Forwarded-For from an untrusted peer is ignored;
+// the first time that happens it is logged, because it usually means the proxy
+// is missing from trusted_proxies and every client shares one rate-limit bucket.
 func (s *Server) clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -217,15 +249,28 @@ func (s *Server) clientIP(r *http.Request) string {
 	if err != nil {
 		return host
 	}
+	addr = addr.Unmap()
+
+	trusted := false
 	for _, p := range s.cfg.trusted {
-		if p.Contains(addr.Unmap()) {
-			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-				parts := strings.Split(xff, ",")
-				if ip, err := netip.ParseAddr(strings.TrimSpace(parts[len(parts)-1])); err == nil {
-					return ip.String()
-				}
-			}
+		if p.Contains(addr) {
+			trusted = true
 			break
+		}
+	}
+	xff := r.Header.Get("X-Forwarded-For")
+	if !trusted {
+		if xff != "" {
+			s.warnUntrustedXFF.Do(func() {
+				s.logf("ignoring X-Forwarded-For %q from untrusted peer %s: add the proxy to trusted_proxies, otherwise all clients share one rate-limit bucket", xff, addr)
+			})
+		}
+		return addr.String()
+	}
+	if xff != "" {
+		parts := strings.Split(xff, ",")
+		if ip, err := netip.ParseAddr(strings.TrimSpace(parts[len(parts)-1])); err == nil {
+			return ip.String()
 		}
 	}
 	return addr.String()

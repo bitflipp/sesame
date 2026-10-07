@@ -91,14 +91,16 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, page
 
 // sameOrigin rejects cross-site form posts. Browsers that send Fetch Metadata
 // are trusted on that alone; others fall back to comparing Origin with
-// external_url (not the Host header, which a proxy may rewrite).
+// external_url (not the Host header, which a proxy may rewrite). A POST that
+// carries neither header is rejected: browsers always send Origin on non-GET
+// requests, so there is no legitimate client to accommodate.
 func (s *Server) sameOrigin(r *http.Request) bool {
 	if v := r.Header.Get("Sec-Fetch-Site"); v != "" {
 		return v == "same-origin" || v == "none"
 	}
 	o := r.Header.Get("Origin")
 	if o == "" {
-		return true
+		return false
 	}
 	u, err := url.Parse(o)
 	return err == nil && u.Scheme == s.cfg.external.Scheme && strings.EqualFold(u.Host, s.cfg.external.Host)
