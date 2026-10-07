@@ -1,0 +1,11 @@
+auth.example.com {
+	reverse_proxy 127.0.0.1:9091
+}
+
+app.example.com {
+	forward_auth 127.0.0.1:9091 {
+		uri /verify
+		copy_headers Remote-User Remote-Email Remote-Name Remote-Groups
+	}
+	reverse_proxy 127.0.0.1:8080
+}

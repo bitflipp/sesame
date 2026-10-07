@@ -1,0 +1,12 @@
+{{define "content"}}
+<h1>Enter your code</h1>
+<p class="muted">If {{.Email}} is allowed to sign in, a code is on its way.</p>
+{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+<form method="post" action="/token">
+  <input type="hidden" name="rd" value="{{.RD}}">
+  <label for="token">One-time code</label>
+  <input id="token" name="token" inputmode="numeric" autocomplete="one-time-code" required autofocus>
+  <button type="submit">Sign in</button>
+</form>
+<p class="muted"><a href="/login?rd={{.RD}}">Use a different address</a></p>
+{{end}}

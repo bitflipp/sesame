@@ -1,0 +1,39 @@
+listen       = "127.0.0.1:9091"
+external_url = "https://auth.example.com"   # where the login portal is served
+secret       = "change-me-to-at-least-32-random-bytes!"  # or: secret_file = "/etc/sesame/secret"
+# trusted_proxies = ["127.0.0.0/8", "::1/128"]  # peers whose X-Forwarded-For is believed
+
+[session]
+cookie_name   = "sesame"
+cookie_domain = "example.com"   # parent domain shared by the portal and all protected apps
+lifetime      = "12h"
+
+[token]
+length              = 8        # digits
+ttl                 = "10m"
+max_attempts        = 5        # wrong guesses before the token is discarded
+rate_limit_per_hour = 5        # tokens per email address and per client IP
+
+[smtp]
+host     = "smtp.example.com"
+port     = 587                 # default depends on tls
+tls      = "starttls"          # starttls | tls | none
+username = "auth@example.com"
+password = "app-password"
+from     = "Sesame <auth@example.com>"
+
+[[users]]                           # only these addresses can sign in; name and groups are optional
+email  = "alice@example.org"
+name   = "Alice"
+groups = ["admins", "dev"]
+
+# Per-host authorization. Hosts matched by no rule are denied (403).
+# Subjects: "user:<email>", "group:<name>", or "*" for any signed-in user.
+# Domain: exact host or "*.example.com" wildcard. Matching rules are additive.
+[[access]]
+domain  = "app.example.com"
+subject = ["group:dev", "user:alice@example.org"]
+
+[[access]]
+domain  = "*.internal.example.com"
+subject = ["group:admins"]

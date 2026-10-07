@@ -1,0 +1,385 @@
+package main
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+)
+
+type fakeSender struct {
+	codes chan string
+}
+
+func (f *fakeSender) SendToken(to, code string, _ time.Duration) error {
+	f.codes <- to + " " + code
+	return nil
+}
+
+func testConfig(t *testing.T) *Config {
+	t.Helper()
+	c := &Config{
+		ExternalURL: "https://auth.example.com",
+		Secret:      strings.Repeat("k", 32),
+		Session:     SessionConfig{CookieDomain: "example.com"},
+		SMTP:        SMTPConfig{Host: "localhost", From: "Sesame <a@example.com>"},
+		Access: []AccessRule{
+			{Domain: "app.example.com", Subject: []string{"group:dev"}},
+			{Domain: "*.internal.example.com", Subject: []string{"user:Bob@corp.test", "user:alice@example.com"}},
+			{Domain: "open.example.com", Subject: []string{"*"}},
+		},
+		Users: []User{
+			{Email: "Alice@Example.com", Name: "Alice", Groups: []string{"admins", "dev"}},
+			{Email: "bob@corp.test"},
+		},
+	}
+	if err := c.validate(); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func newTestServer(t *testing.T) (*Server, *fakeSender) {
+	f := &fakeSender{codes: make(chan string, 10)}
+	return NewServer(testConfig(t), f), f
+}
+
+func do(s *Server, method, target string, form url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	var body *strings.Reader
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+	} else {
+		body = strings.NewReader("")
+	}
+	r := httptest.NewRequest(method, target, body)
+	if form != nil {
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	for _, c := range cookies {
+		r.AddCookie(c)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	return w
+}
+
+func TestConfigValidation(t *testing.T) {
+	good := testConfig(t)
+	if _, ok := good.Lookup("alice@example.com"); !ok {
+		t.Error("explicit user not found")
+	}
+	if _, ok := good.Lookup("bob@corp.test"); !ok {
+		t.Error("second user not found")
+	}
+	if _, ok := good.Lookup("carol@corp.test"); ok {
+		t.Error("same-domain stranger allowed")
+	}
+	if _, ok := good.Lookup("eve@evil.test"); ok {
+		t.Error("unlisted user allowed")
+	}
+	mutations := map[string]func(*Config){
+		"short secret": func(c *Config) { c.Secret = "short" },
+		"bad url":      func(c *Config) { c.ExternalURL = "auth.example.com" },
+		"wrong domain": func(c *Config) { c.Session.CookieDomain = "other.org" },
+		"no access":    func(c *Config) { c.Users = nil },
+		"no rules":     func(c *Config) { c.Access = nil },
+		"bad subject":  func(c *Config) { c.Access[0].Subject = []string{"role:x"} },
+		"bad domain":   func(c *Config) { c.Access[0].Domain = "a.*.com" },
+		"bad tls":      func(c *Config) { c.SMTP.TLS = "magic" },
+	}
+	for name, mut := range mutations {
+		c := &Config{
+			ExternalURL: "https://auth.example.com", Secret: strings.Repeat("k", 32),
+			Session: SessionConfig{CookieDomain: "example.com"},
+			SMTP:    SMTPConfig{Host: "h", From: "a@example.com"},
+			Users:   []User{{Email: "a@example.com"}},
+			Access:  []AccessRule{{Domain: "app.example.com", Subject: []string{"*"}}},
+		}
+		mut(c)
+		if c.validate() == nil {
+			t.Errorf("%s: expected error", name)
+		}
+	}
+}
+
+func TestOTPStore(t *testing.T) {
+	now := time.Now()
+	s := NewOTPStore(TokenConfig{Length: 8, TTL: time.Minute, MaxAttempts: 3, RateLimitPerHour: 2})
+	s.now = func() time.Time { return now }
+
+	code, _ := s.Issue("a@x", "1.1.1.1")
+	if len(code) != 8 {
+		t.Fatalf("code length %d", len(code))
+	}
+	if s.Verify("a@x", "00000000") && code != "00000000" {
+		t.Error("wrong code accepted")
+	}
+	if !s.Verify("a@x", code) {
+		t.Error("right code rejected")
+	}
+	if s.Verify("a@x", code) {
+		t.Error("code reused")
+	}
+
+	code, _ = s.Issue("a@x", "1.1.1.1")
+	if _, err := s.Issue("a@x", "1.1.1.1"); err != ErrRateLimited {
+		t.Error("expected rate limit")
+	}
+	now = now.Add(2 * time.Minute)
+	if s.Verify("a@x", code) {
+		t.Error("expired code accepted")
+	}
+
+	now = now.Add(time.Hour)
+	code, err := s.Issue("a@x", "1.1.1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		s.Verify("a@x", "x")
+	}
+	if s.Verify("a@x", code) {
+		t.Error("code survived max attempts")
+	}
+}
+
+func TestCookieSigning(t *testing.T) {
+	s, _ := newTestServer(t)
+	v := s.sign(claims{Kind: kindSession, Email: "alice@example.com", Expires: s.now().Add(time.Hour).Unix()})
+	if _, err := s.parse(v, kindSession); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.parse(v, kindPending); err == nil {
+		t.Error("session cookie accepted as pending")
+	}
+	if _, err := s.parse(v+"x", kindSession); err == nil {
+		t.Error("tampered signature accepted")
+	}
+	old := s.sign(claims{Kind: kindSession, Email: "alice@example.com", Expires: s.now().Add(-time.Second).Unix()})
+	if _, err := s.parse(old, kindSession); err == nil {
+		t.Error("expired cookie accepted")
+	}
+}
+
+func TestSafeRedirect(t *testing.T) {
+	s, _ := newTestServer(t)
+	for rd, want := range map[string]bool{
+		"https://app.example.com/x?y=1": true,
+		"https://example.com/":          true,
+		"https://evil.com/":             false,
+		"https://example.com.evil.com/": false,
+		"https://evilexample.com/":      false,
+		"//evil.com":                    false,
+		"javascript:alert(1)":           false,
+		"https://a@evil.com/":           false,
+		"/relative":                     false,
+	} {
+		if got := s.safeRedirect(rd) != ""; got != want {
+			t.Errorf("safeRedirect(%q) = %v, want %v", rd, got, want)
+		}
+	}
+}
+
+func TestVerifyUnauthenticated(t *testing.T) {
+	s, _ := newTestServer(t)
+	r := httptest.NewRequest("GET", "/verify", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "app.example.com")
+	r.Header.Set("X-Forwarded-Uri", "/a?b=c")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusFound {
+		t.Fatalf("status %d", w.Code)
+	}
+	loc, _ := url.Parse(w.Header().Get("Location"))
+	if loc.Host != "auth.example.com" || loc.Path != "/login" || loc.Query().Get("rd") != "https://app.example.com/a?b=c" {
+		t.Errorf("bad redirect %s", loc)
+	}
+}
+
+func cookieByName(w *httptest.ResponseRecorder, name string) *http.Cookie {
+	for _, c := range w.Result().Cookies() {
+		if c.Name == name && c.MaxAge >= 0 && c.Value != "" {
+			return c
+		}
+	}
+	return nil
+}
+
+func TestFullLoginFlow(t *testing.T) {
+	s, f := newTestServer(t)
+	rd := "https://app.example.com/secret"
+
+	w := do(s, "POST", "/login", url.Values{"email": {"Alice@example.com"}, "rd": {rd}})
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("login status %d", w.Code)
+	}
+	pending := cookieByName(w, "sesame_pending")
+	if pending == nil {
+		t.Fatal("no pending cookie")
+	}
+	var to, code string
+	select {
+	case m := <-f.codes:
+		to, code, _ = strings.Cut(m, " ")
+	case <-time.After(time.Second):
+		t.Fatal("no mail sent")
+	}
+	if to != "alice@example.com" {
+		t.Errorf("mailed %q", to)
+	}
+
+	// wrong code
+	w = do(s, "POST", "/token", url.Values{"token": {"nope"}, "rd": {rd}}, pending)
+	if w.Code != http.StatusUnauthorized || cookieByName(w, "sesame") != nil {
+		t.Fatalf("wrong code: status %d", w.Code)
+	}
+	// right code (spaces tolerated)
+	w = do(s, "POST", "/token", url.Values{"token": {code[:4] + " " + code[4:]}, "rd": {rd}}, pending)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != rd {
+		t.Fatalf("token: status %d loc %q", w.Code, w.Header().Get("Location"))
+	}
+	session := cookieByName(w, "sesame")
+	if session == nil || session.Domain != "example.com" || !session.HttpOnly || !session.Secure {
+		t.Fatalf("bad session cookie %+v", session)
+	}
+
+	// forward_auth check
+	r := httptest.NewRequest("GET", "/verify", nil)
+	r.AddCookie(session)
+	r.Header.Set("X-Forwarded-Host", "app.example.com")
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("verify status %d", w.Code)
+	}
+	for h, want := range map[string]string{
+		"Remote-User": "alice@example.com", "Remote-Email": "alice@example.com",
+		"Remote-Name": "Alice", "Remote-Groups": "admins,dev",
+	} {
+		if got := w.Header().Get(h); got != want {
+			t.Errorf("%s = %q, want %q", h, got, want)
+		}
+	}
+}
+
+func TestNoEnumeration(t *testing.T) {
+	s, f := newTestServer(t)
+	a := do(s, "POST", "/login", url.Values{"email": {"alice@example.com"}})
+	b := do(s, "POST", "/login", url.Values{"email": {"nobody@evil.test"}})
+	if a.Code != b.Code || a.Header().Get("Location") != b.Header().Get("Location") {
+		t.Error("responses differ")
+	}
+	<-f.codes
+	select {
+	case m := <-f.codes:
+		t.Errorf("mail sent to unlisted address: %s", m)
+	case <-time.After(50 * time.Millisecond):
+	}
+	// pending cookie for unlisted address can never be redeemed
+	w := do(s, "POST", "/token", url.Values{"token": {"12345678"}}, cookieByName(b, "sesame_pending"))
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status %d", w.Code)
+	}
+}
+
+func TestRemovedUserLosesAccess(t *testing.T) {
+	s, _ := newTestServer(t)
+	v := s.sign(claims{Kind: kindSession, Email: "gone@example.com", Expires: s.now().Add(time.Hour).Unix()})
+	w := do(s, "GET", "/verify", nil, &http.Cookie{Name: "sesame", Value: v})
+	if w.Code != http.StatusFound {
+		t.Errorf("status %d", w.Code)
+	}
+}
+
+func TestCrossSiteRejected(t *testing.T) {
+	s, _ := newTestServer(t)
+	r := httptest.NewRequest("POST", "/login", strings.NewReader("email=alice@example.com"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status %d", w.Code)
+	}
+}
+
+func TestAuthorize(t *testing.T) {
+	c := testConfig(t)
+	alice, _ := c.Lookup("alice@example.com")
+	bob, _ := c.Lookup("bob@corp.test")
+	for _, tc := range []struct {
+		u    User
+		host string
+		want bool
+	}{
+		{alice, "app.example.com", true},
+		{alice, "APP.example.com:443", true},
+		{bob, "app.example.com", false},
+		{alice, "x.internal.example.com", true},
+		{bob, "x.internal.example.com", true},
+		{bob, "internal.example.com", false},
+		{alice, "evilapp.example.com", false},
+		{bob, "open.example.com", true},
+		{alice, "unlisted.example.com", false},
+		{alice, "", false},
+	} {
+		if got := c.Authorize(tc.u, tc.host); got != tc.want {
+			t.Errorf("Authorize(%s, %q) = %v, want %v", tc.u.Email, tc.host, got, tc.want)
+		}
+	}
+}
+
+func TestVerifyForbidden(t *testing.T) {
+	s, _ := newTestServer(t)
+	v := s.sign(claims{Kind: kindSession, Email: "bob@corp.test", Expires: s.now().Add(time.Hour).Unix()})
+	r := httptest.NewRequest("GET", "/verify", nil)
+	r.AddCookie(&http.Cookie{Name: "sesame", Value: v})
+	r.Header.Set("X-Forwarded-Host", "app.example.com")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status %d", w.Code)
+	}
+	if w.Header().Get("Remote-User") != "" {
+		t.Error("identity headers leaked on denial")
+	}
+}
+
+func TestSameOrigin(t *testing.T) {
+	s, _ := newTestServer(t)
+	for _, tc := range []struct {
+		site, origin string
+		want         bool
+	}{
+		{"same-origin", "null", true}, // Origin is "null" under Referrer-Policy: no-referrer
+		{"same-origin", "", true},
+		{"cross-site", "https://auth.example.com", false},
+		{"same-site", "", false},
+		{"", "", true},
+		{"", "https://auth.example.com", true},
+		{"", "https://evil.com", false},
+		{"", "null", false},
+	} {
+		r := httptest.NewRequest("POST", "http://internal:9091/login", nil) // Host rewritten by proxy
+		if tc.site != "" {
+			r.Header.Set("Sec-Fetch-Site", tc.site)
+		}
+		if tc.origin != "" {
+			r.Header.Set("Origin", tc.origin)
+		}
+		if got := s.sameOrigin(r); got != tc.want {
+			t.Errorf("site=%q origin=%q: got %v, want %v", tc.site, tc.origin, got, tc.want)
+		}
+	}
+}
+
+func TestCSPAllowsPostLoginRedirect(t *testing.T) {
+	s, _ := newTestServer(t)
+	w := do(s, "GET", "/login", nil)
+	if csp := w.Header().Get("Content-Security-Policy"); strings.Contains(csp, "form-action") {
+		t.Errorf("form-action would block the redirect to the app: %s", csp)
+	}
+}
