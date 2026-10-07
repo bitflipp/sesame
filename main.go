@@ -57,7 +57,7 @@ func main() {
 		hs.Shutdown(sctx)
 	}()
 
-	log.Printf("sesame listening on %s", cfg.Listen)
+	log.Printf("Sesame listening on %s", cfg.Listen)
 	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}

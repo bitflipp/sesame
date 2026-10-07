@@ -1,12 +1,12 @@
-<p align="center"><img src="icon.svg" alt="sesame icon" width="128" height="128"></p>
+<p align="center"><img src="icon.svg" alt="Sesame icon" width="128" height="128"></p>
 
-# sesame
+# Sesame
 
 **Tiny email one-time-token and passkey SSO for [Caddy](https://caddyserver.com)'s `forward_auth`.**
 
 No external database and no identity provider. Users sign in with a numeric code sent over SMTP — or,
 once they have registered one, with a passkey — and get a signed session cookie that works across all
-your subdomains. Access is controlled per host with a few lines of TOML. `sesame` is a single Go
+your subdomains. Access is controlled per host with a few lines of TOML. Sesame is a single Go
 binary with one config file; passkeys, when enabled, live in one local key/value file next to it.
 
 ## Features
@@ -27,7 +27,7 @@ binary with one config file; passkeys, when enabled, live in one local key/value
 
 ## How it works
 
-1. An unauthenticated request hits Caddy, which asks sesame's `/verify`. Sesame answers `302` to the login portal.
+1. An unauthenticated request hits Caddy, which asks Sesame's `/verify`. Sesame answers `302` to the login portal.
 2. The user enters their email. If it is in the allowlist, a code is sent. They can also press
    **Sign in with a passkey** to skip the code when they have registered one.
 3. The user enters the code (or completes the passkey prompt) and receives a session cookie shared across `cookie_domain`.
@@ -102,7 +102,7 @@ subject = ["group:dev"]         # "user:<email>", "group:<name>", or "*"
 ```
 
 `rp_id` defaults to `session.cookie_domain`, which is what lets one passkey cover the portal and its
-siblings. `store` must point at a writable path; sesame creates the file (mode `0600`) on first start.
+siblings. `store` must point at a writable path; Sesame creates the file (mode `0600`) on first start.
 SMTP is configured in the `[smtp]` block: `host`, optional `port` (defaults to 587 for `starttls`,
 465 for `tls`, 25 for `none`), `tls`, `username`, `password` and `from`. Unknown keys are rejected at
 startup, so a typo fails loudly rather than silently taking a default.
@@ -132,8 +132,8 @@ The passkey endpoints answer JSON instead, since only the page script calls them
 - Caddy's `copy_headers` overwrites any client-supplied `Remote-*` headers, so upstreams can trust
   them as long as they are only reachable through Caddy.
 - `X-Forwarded-For` is only believed from peers listed in `trusted_proxies`; if the proxy is missing
-  from that list, sesame logs a warning once and every client shares one per-IP rate limit.
-- After signing in, sesame only redirects to the portal itself or to a host with an `[[access]]` rule,
+  from that list, Sesame logs a warning once and every client shares one per-IP rate limit.
+- After signing in, Sesame only redirects to the portal itself or to a host with an `[[access]]` rule,
   so a crafted `rd` cannot bounce users to another site.
 - Set `session.cookie_domain` to the registrable domain (`example.com`), not a public suffix such as
   `com` or `co.uk`; single-label domains are rejected at startup.
@@ -146,7 +146,7 @@ The passkey endpoints answer JSON instead, since only the page script calls them
   an account exists only by failing generically. The relying party ID defaults to `session.cookie_domain`
   and is checked at startup to be the portal host or a parent of it.
 - The passkey store holds credential IDs, public keys and opaque random user handles — never private
-  keys. It is created `0600`; keep it on a path only sesame can read.
+  keys. It is created `0600`; keep it on a path only Sesame can read.
 - Registering a passkey requires a signed-in session, and deleting one checks ownership. In-flight
   ceremonies live in memory, expire after five minutes and are single-use. Starting a login ceremony
   is rate limited per client IP, so cheap requests cannot grow that state without bound.
