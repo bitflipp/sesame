@@ -1,10 +1,10 @@
+<p align="center"><img src="icon.svg" alt="sesame icon" width="128" height="128"></p>
+
 # sesame
 
-Tiny email one-time-token SSO for [Caddy](https://caddyserver.com)'s `forward_auth`.
+A tiny email one-time-token SSO for [Caddy](https://caddyserver.com)'s `forward_auth`.
 
-No database, no identity provider, no JavaScript. Users type their email address, receive a
-numeric code over SMTP, and get a signed session cookie that works across all your subdomains.
-Access is controlled per host with a few lines of TOML.
+No database and no identity provider. Users type their email address, receive a numeric code over SMTP, and get a signed session cookie that works across all your subdomains. Access is controlled per host with a few lines of TOML. `sesame` is a single Go binary with one config file.
 
 ## Features
 
@@ -14,7 +14,7 @@ Access is controlled per host with a few lines of TOML.
 - **Stateless sessions**: HMAC-signed cookies that hold only the email. Name and groups are re-read
   from the config on each request, so removing a user revokes their sessions immediately.
 - **Abuse protection**: per-email and per-IP rate limits, attempt-limited codes, same-origin checks.
-- **Small**: one Go binary, one config file, one dependency.
+- **Small**: one Go binary, one config file, one dependency
 
 ## How it works
 
@@ -24,7 +24,7 @@ Access is controlled per host with a few lines of TOML.
 4. `/verify` checks the `[[access]]` rules for the requested host (`X-Forwarded-Host`). It returns `403` if
    nothing matches, otherwise `200` with the headers `Remote-User`, `Remote-Email`, `Remote-Name` and `Remote-Groups`.
 
-## Quick start
+## Usage
 
 ```sh
 go build -o sesame .
@@ -82,14 +82,19 @@ subject = ["group:dev"]         # "user:<email>", "group:<name>", or "*"
 
 Errors, including the `403` that `/verify` returns to Caddy, are rendered as friendly HTML pages.
 
-## Security notes
+### Security notes
 
 - Caddy's `copy_headers` overwrites any client-supplied `Remote-*` headers, so upstreams can trust
   them as long as they are only reachable through Caddy.
 - `X-Forwarded-For` is only believed from peers listed in `trusted_proxies`.
 - Pending codes live in memory, so a restart invalidates unredeemed codes.
 
-## Development
+## Requirements
+
+- Go (to build) and an SMTP server for sending codes
+- Caddy, or any reverse proxy with a `forward_auth`-style subrequest
+
+## Running the tests
 
 ```sh
 go test ./...
