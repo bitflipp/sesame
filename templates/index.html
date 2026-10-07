@@ -1,14 +1,14 @@
 {{define "content"}}
 {{if .User}}
-<h1>You are signed in</h1>
+<h1>{{.L.T "index_in_heading"}}</h1>
 <p>{{if .User.Name}}{{.User.Name}}<br>{{end}}<span class="muted">{{.User.Email}}</span></p>
-{{if .User.Groups}}<p class="muted">Groups: {{range $i, $g := .User.Groups}}{{if $i}}, {{end}}{{$g}}{{end}}</p>{{end}}
+{{if .User.Groups}}<p class="muted">{{.L.T "index_groups"}} {{range $i, $g := .User.Groups}}{{if $i}}, {{end}}{{$g}}{{end}}</p>{{end}}
 <form method="post" action="/logout">
-  <button type="submit">Sign out</button>
+  <button type="submit">{{.L.T "index_sign_out"}}</button>
 </form>
 {{else}}
-<h1>You are signed out</h1>
-<p class="muted">Sign in with your email address to continue.</p>
-<p><a href="/login">Sign in</a></p>
+<h1>{{.L.T "index_out_heading"}}</h1>
+<p class="muted">{{.L.T "index_out_hint"}}</p>
+<p><a href="/login">{{.L.T "index_sign_in"}}</a></p>
 {{end}}
 {{end}}

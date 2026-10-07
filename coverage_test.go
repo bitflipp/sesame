@@ -243,7 +243,7 @@ func TestRenderError(t *testing.T) {
 		http.StatusTeapot:          "could not be completed",
 	} {
 		w := httptest.NewRecorder()
-		s.renderError(w, code)
+		s.renderError(w, httptest.NewRequest("GET", "/", nil), code)
 		if w.Code != code || !strings.Contains(w.Body.String(), want) {
 			t.Errorf("%d: %d %s", code, w.Code, w.Body)
 		}

@@ -10,7 +10,7 @@ import (
 
 func TestBuildMessage(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	b, err := buildMessage("Sesame <a@example.com>", "bob@corp.test", "12345678", 10*time.Minute, now)
+	b, err := buildMessage("Sesame <a@example.com>", "bob@corp.test", "12345678", 10*time.Minute, "en", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func fakeSMTP(t *testing.T) (port int, got chan string) {
 func TestSMTPSenderSendToken(t *testing.T) {
 	port, got := fakeSMTP(t)
 	s := &SMTPSender{cfg: SMTPConfig{Host: "127.0.0.1", Port: port, TLS: "none", From: "Sesame <a@example.com>"}}
-	if err := s.SendToken("bob@corp.test", "87654321", 5*time.Minute); err != nil {
+	if err := s.SendToken("bob@corp.test", "87654321", 5*time.Minute, "en"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -107,12 +107,12 @@ func TestSMTPSenderSendToken(t *testing.T) {
 
 func TestSMTPSenderErrors(t *testing.T) {
 	bad := &SMTPSender{cfg: SMTPConfig{Host: "127.0.0.1", Port: 1, TLS: "none", From: "not an address"}}
-	if bad.SendToken("a@b.test", "1", time.Minute) == nil {
+	if bad.SendToken("a@b.test", "1", time.Minute, "en") == nil {
 		t.Error("expected error for bad From")
 	}
 	// Port 1 on loopback is closed: dial must fail.
 	down := &SMTPSender{cfg: SMTPConfig{Host: "127.0.0.1", Port: 1, TLS: "none", From: "a@example.com"}}
-	if down.SendToken("a@b.test", "1", time.Minute) == nil {
+	if down.SendToken("a@b.test", "1", time.Minute, "en") == nil {
 		t.Error("expected dial error")
 	}
 }

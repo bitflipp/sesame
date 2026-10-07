@@ -1,0 +1,8 @@
+{{define "subject"}}Dein Anmeldecode: {{.Code}}{{end}}
+{{- define "body" -}}
+Dein Einmalcode für die Anmeldung lautet:
+
+    {{.Code}}
+
+Er läuft in {{.Minutes}} Minuten ab. Falls du ihn nicht angefordert hast, ignoriere diese Nachricht.
+{{end -}}

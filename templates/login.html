@@ -1,10 +1,10 @@
 {{define "content"}}
-<h1>Sign in</h1>
-{{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+<h1>{{.L.T "login_heading"}}</h1>
+{{if .Error}}<p class="err">{{.L.T .Error}}</p>{{end}}
 <form method="post" action="/login">
   <input type="hidden" name="rd" value="{{.RD}}">
-  <label for="email">Email address</label>
+  <label for="email">{{.L.T "login_email_label"}}</label>
   <input id="email" name="email" type="email" autocomplete="email" required autofocus>
-  <button type="submit">Send code</button>
+  <button type="submit">{{.L.T "login_submit"}}</button>
 </form>
 {{end}}

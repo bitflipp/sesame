@@ -13,7 +13,7 @@ type fakeSender struct {
 	codes chan string
 }
 
-func (f *fakeSender) SendToken(to, code string, _ time.Duration) error {
+func (f *fakeSender) SendToken(to, code string, _ time.Duration, _ string) error {
 	f.codes <- to + " " + code
 	return nil
 }

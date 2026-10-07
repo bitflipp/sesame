@@ -1,9 +1,9 @@
 {{define "layout"}}<!doctype html>
-<html lang="en">
+<html lang="{{.L.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{or .Title "Sesame"}}</title>
+<title>{{.L.T .Title}}</title>
 <style>
 :root { color-scheme: light dark; }
 body { font: 16px/1.5 system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; }
@@ -14,11 +14,18 @@ button { cursor: pointer; }
 .err { color: #c00; }
 .code { font-size: 3rem; font-weight: 700; opacity: .3; margin: 0; }
 .muted { opacity: .7; font-size: .9rem; }
+.lang { position: absolute; top: .75rem; right: .75rem; display: flex; gap: .25rem; }
+.lang select, .lang button { width: auto; margin: 0; padding: .25rem .4rem; font-size: .85rem; }
 </style>
 </head>
 <body>
 <main>
 {{template "content" .}}
 </main>
+{{with .L.Options}}<form class="lang" method="get" action="/lang">
+  <input type="hidden" name="rd" value="{{$.Path}}">
+  <select name="set" aria-label="{{$.L.T "lang_switch"}}" title="{{$.L.T "lang_switch"}}">{{range .}}<option value="{{.Code}}" lang="{{.Code}}"{{if .Current}} selected{{end}}>{{.Name}}</option>{{end}}</select>
+  <button type="submit">{{$.L.T "lang_apply"}}</button>
+</form>{{end}}
 </body>
 </html>{{end}}

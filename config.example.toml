@@ -1,6 +1,7 @@
 listen       = "127.0.0.1:9091"
 external_url = "https://auth.example.com"   # where the login portal is served
 secret       = "change-me-to-at-least-32-random-bytes!"  # or: secret_file = "/etc/sesame/secret"
+# default_language = "en"                       # fallback UI/email language: en, de
 # trusted_proxies = ["127.0.0.0/8", "::1/128"]  # peers whose X-Forwarded-For is believed
 
 [session]

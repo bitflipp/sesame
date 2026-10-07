@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -20,35 +21,28 @@ func init() {
 }
 
 type pageData struct {
-	Title string
+	Title string // catalog key
+	L     Localizer
+	Path  string // current request URI, for the language switcher
 	Email string
 	RD    string
-	Error string
+	Error string // catalog key
 	User  *User  // index: the signed-in user, if any
 	Code  int    // error: HTTP status
-	Msg   string // error: friendly explanation
+	Msg   string // error: catalog key of the friendly explanation
 	Home  string // error: absolute link to the portal
 }
 
-var errorMessages = map[int][2]string{
-	http.StatusBadRequest:          {"Bad request", "Something was wrong with that request. Please go back and try again."},
-	http.StatusForbidden:           {"Access denied", "You don't have permission to view this page. If you think that's a mistake, ask whoever manages access."},
-	http.StatusNotFound:            {"Page not found", "We couldn't find the page you were looking for."},
-	http.StatusMethodNotAllowed:    {"Not allowed", "That page can't be used this way."},
-	http.StatusTooManyRequests:     {"Slow down", "Too many attempts. Please wait a moment and try again."},
-	http.StatusInternalServerError: {"Something went wrong", "An unexpected error occurred on our side. Please try again in a moment."},
-}
-
 // renderError writes a friendly error page for the given status.
-func (s *Server) renderError(w http.ResponseWriter, code int) {
-	m, ok := errorMessages[code]
-	if !ok {
-		m = [2]string{"Something went wrong", "The request could not be completed."}
+func (s *Server) renderError(w http.ResponseWriter, r *http.Request, code int) {
+	key := "error_" + strconv.Itoa(code)
+	if _, ok := catalogs[fallbackLang][key+"_title"]; !ok {
+		key = "error_other"
 		if code >= 500 {
-			m = errorMessages[http.StatusInternalServerError]
+			key = "error_500"
 		}
 	}
-	s.render(w, code, "error", pageData{Title: m[0], Msg: m[1], Code: code, Home: s.cfg.external.String()})
+	s.render(w, r, code, "error", pageData{Title: key + "_title", Msg: key + "_msg", Code: code, Home: s.cfg.external.String()})
 }
 
 // errorWriter swaps the plain-text bodies written by http.Error and
@@ -56,6 +50,7 @@ func (s *Server) renderError(w http.ResponseWriter, code int) {
 type errorWriter struct {
 	http.ResponseWriter
 	s       *Server
+	r       *http.Request
 	swapped bool
 }
 
@@ -63,7 +58,7 @@ func (e *errorWriter) WriteHeader(code int) {
 	if code >= 400 && strings.HasPrefix(e.Header().Get("Content-Type"), "text/plain") {
 		e.swapped = true
 		e.Header().Del("Content-Length")
-		e.s.renderError(e.ResponseWriter, code)
+		e.s.renderError(e.ResponseWriter, e.r, code)
 		return
 	}
 	e.ResponseWriter.WriteHeader(code)
@@ -77,14 +72,16 @@ func (e *errorWriter) Write(b []byte) (int, error) {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	d := pageData{Title: "Sesame"}
+	d := pageData{Title: "title_index"}
 	if u, ok := s.session(r); ok {
 		d.User = &u
 	}
-	s.render(w, http.StatusOK, "index", d)
+	s.render(w, r, http.StatusOK, "index", d)
 }
 
-func (s *Server) render(w http.ResponseWriter, status int, page string, d pageData) {
+func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, page string, d pageData) {
+	d.L = Localizer{s.lang(r)}
+	d.Path = r.URL.RequestURI()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if err := pages[page].ExecuteTemplate(w, "layout", d); err != nil {
@@ -117,7 +114,7 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	s.render(w, http.StatusOK, "login", pageData{Title: "Sign in", RD: rd})
+	s.render(w, r, http.StatusOK, "login", pageData{Title: "title_login", RD: rd})
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -128,19 +125,20 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	rd := s.safeRedirect(r.FormValue("rd"))
 	email, err := normalizeEmail(r.FormValue("email"))
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "login", pageData{Title: "Sign in", RD: rd, Error: "Please enter a valid email address."})
+		s.render(w, r, http.StatusBadRequest, "login", pageData{Title: "title_login", RD: rd, Error: "login_invalid_email"})
 		return
 	}
 
 	// The response is identical whether or not the address is allowed, and
 	// mail is sent in the background so timing doesn't reveal it either.
 	if _, ok := s.cfg.Lookup(email); ok {
+		lang := s.lang(r)
 		code, err := s.otp.Issue(email, s.clientIP(r))
 		if err != nil {
 			s.logf("token for %s not issued: %v", email, err)
 		} else {
 			go func() {
-				if err := s.sender.SendToken(email, code, s.cfg.Token.TTL); err != nil {
+				if err := s.sender.SendToken(email, code, s.cfg.Token.TTL, lang); err != nil {
 					s.logf("sending token to %s: %v", email, err)
 				}
 			}()
@@ -171,7 +169,7 @@ func (s *Server) handleTokenForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?"+url.Values{"rd": {rd}}.Encode(), http.StatusSeeOther)
 		return
 	}
-	s.render(w, http.StatusOK, "token", pageData{Title: "Enter your code", Email: email, RD: rd})
+	s.render(w, r, http.StatusOK, "token", pageData{Title: "title_token", Email: email, RD: rd})
 }
 
 func (s *Server) handleTokenSubmit(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +185,7 @@ func (s *Server) handleTokenSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	code := strings.Join(strings.Fields(r.FormValue("token")), "")
 	if _, allowed := s.cfg.Lookup(email); !allowed || !s.otp.Verify(email, code) {
-		s.render(w, http.StatusUnauthorized, "token", pageData{Title: "Enter your code", Email: email, RD: rd, Error: "That code is invalid or has expired."})
+		s.render(w, r, http.StatusUnauthorized, "token", pageData{Title: "title_token", Email: email, RD: rd, Error: "token_invalid"})
 		return
 	}
 	s.setSession(w, email)

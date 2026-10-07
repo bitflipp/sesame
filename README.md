@@ -14,6 +14,9 @@ No database and no identity provider. Users type their email address, receive a 
 - **Stateless sessions**: HMAC-signed cookies that hold only the email. Name and groups are re-read
   from the config on each request, so removing a user revokes their sessions immediately.
 - **Abuse protection**: per-email and per-IP rate limits, attempt-limited codes, same-origin checks.
+- **Multilingual**: English and German pages and emails. The language follows a switcher cookie, then the
+  browser's `Accept-Language`, then `default_language`. To add one, drop in `locales/<lang>.toml` and
+  `templates/mail.<lang>.txt`.
 - **Small**: one Go binary, one config file, one dependency
 
 ## How it works
@@ -77,6 +80,7 @@ subject = ["group:dev"]         # "user:<email>", "group:<name>", or "*"
 | `/verify`  | `forward_auth` target for Caddy                               |
 | `/login`   | Email form                                                    |
 | `/token`   | Code entry form                                               |
+| `/lang`    | `?set=de&rd=/path` stores the language cookie and redirects   |
 | `/logout`  | `POST` signs out; `GET` just redirects home                   |
 | `/healthz` | Health check                                                  |
 

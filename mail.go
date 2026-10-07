@@ -2,7 +2,7 @@ package main
 
 import (
 	"crypto/tls"
-	_ "embed"
+	"embed"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -13,20 +13,37 @@ import (
 )
 
 type Sender interface {
-	SendToken(to, code string, ttl time.Duration) error
+	SendToken(to, code string, ttl time.Duration, lang string) error
 }
 
-//go:embed templates/mail.txt
-var mailTemplateText string
+//go:embed templates/mail.*.txt
+var mailFS embed.FS
 
-var mailTemplate = template.Must(template.New("mail").Parse(mailTemplateText))
+// mailTemplates holds one template per language, each with "subject" and
+// "body" blocks.
+var mailTemplates = func() map[string]*template.Template {
+	files, err := mailFS.ReadDir("templates")
+	if err != nil {
+		panic(err)
+	}
+	out := map[string]*template.Template{}
+	for _, f := range files {
+		lang := strings.TrimSuffix(strings.TrimPrefix(f.Name(), "mail."), ".txt")
+		out[lang] = template.Must(template.ParseFS(mailFS, "templates/"+f.Name()))
+	}
+	return out
+}()
 
 // buildMessage renders the sign-in email (headers and body) with CRLF line endings.
-func buildMessage(from, to, code string, ttl time.Duration, now time.Time) ([]byte, error) {
+func buildMessage(from, to, code string, ttl time.Duration, lang string, now time.Time) ([]byte, error) {
 	data := struct {
 		Code    string
 		Minutes int
 	}{code, int(ttl.Minutes())}
+	mailTemplate, ok := mailTemplates[lang]
+	if !ok {
+		mailTemplate = mailTemplates[fallbackLang]
+	}
 	var subject, body strings.Builder
 	if err := mailTemplate.ExecuteTemplate(&subject, "subject", data); err != nil {
 		return nil, err
@@ -52,12 +69,12 @@ type SMTPSender struct {
 	cfg SMTPConfig
 }
 
-func (s *SMTPSender) SendToken(to, code string, ttl time.Duration) error {
+func (s *SMTPSender) SendToken(to, code string, ttl time.Duration, lang string) error {
 	from, err := mail.ParseAddress(s.cfg.From)
 	if err != nil {
 		return err
 	}
-	msg, err := buildMessage(s.cfg.From, to, code, ttl, time.Now())
+	msg, err := buildMessage(s.cfg.From, to, code, ttl, lang, time.Now())
 	if err != nil {
 		return err
 	}

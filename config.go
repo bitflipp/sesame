@@ -16,11 +16,12 @@ import (
 )
 
 type Config struct {
-	Listen         string   `toml:"listen"`
-	ExternalURL    string   `toml:"external_url"`
-	Secret         string   `toml:"secret"`
-	SecretFile     string   `toml:"secret_file"`
-	TrustedProxies []string `toml:"trusted_proxies"`
+	Listen          string   `toml:"listen"`
+	ExternalURL     string   `toml:"external_url"`
+	Secret          string   `toml:"secret"`
+	SecretFile      string   `toml:"secret_file"`
+	TrustedProxies  []string `toml:"trusted_proxies"`
+	DefaultLanguage string   `toml:"default_language"`
 
 	Session SessionConfig `toml:"session"`
 	Token   TokenConfig   `toml:"token"`
@@ -113,6 +114,13 @@ func (c *Config) validate() error {
 		return errors.New("secret must be at least 32 bytes")
 	}
 	c.secretBytes = []byte(secret)
+
+	if c.DefaultLanguage == "" {
+		c.DefaultLanguage = fallbackLang
+	}
+	if _, ok := catalogs[c.DefaultLanguage]; !ok {
+		return fmt.Errorf("default_language: unsupported language %q", c.DefaultLanguage)
+	}
 
 	if len(c.TrustedProxies) == 0 {
 		c.TrustedProxies = []string{"127.0.0.0/8", "::1/128"}

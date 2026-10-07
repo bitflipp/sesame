@@ -46,6 +46,7 @@ func NewServer(cfg *Config, sender Sender) *Server {
 	s.mux.HandleFunc("GET /token", s.handleTokenForm)
 	s.mux.HandleFunc("POST /token", s.handleTokenSubmit)
 	s.mux.HandleFunc("GET /{$}", s.handleIndex)
+	s.mux.HandleFunc("GET /lang", s.handleLang)
 	s.mux.HandleFunc("GET /logout", s.handleLogout)
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok\n")) })
@@ -59,7 +60,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// No form-action: browsers apply it to redirects after a form POST, which
 	// would block the redirect back to the protected app.
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-	s.mux.ServeHTTP(&errorWriter{ResponseWriter: w, s: s}, r)
+	s.mux.ServeHTTP(&errorWriter{ResponseWriter: w, s: s, r: r}, r)
 }
 
 func (s *Server) sign(c claims) string {
