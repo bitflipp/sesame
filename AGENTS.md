@@ -17,10 +17,6 @@ go build -o sesame .               # then: ./sesame -config sesame.toml
 - The suite is hermetic: `httptest` servers and a fake SMTP listener on loopback. No network, no
   config file, no environment variables. If a new test needs any of those, that is a design smell
   worth raising before you write it.
-- In a sandboxed environment Go may fail with `read-only file system` on its build cache. Point
-  `GOCACHE` at a writable **absolute** path (a relative one is rejected), for example
-  `GOCACHE="$PWD/.git/gocache" go test ./...`, which persists and does not dirty the worktree. On a
-  normal machine the default cache works and this does not apply.
 - There is no CI configuration in this repository. `go vet` plus `go test ./...` locally is the
   entire gate, so run both before claiming something works.
 - `templates/` and `locales/` are embedded with `go:embed`. **Rebuild after editing them**, and do
