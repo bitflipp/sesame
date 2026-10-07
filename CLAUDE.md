@@ -11,7 +11,7 @@ go test -run TestName .                                # single test
 go vet ./...
 ```
 
-Single Go package (`main`), one external dependency (BurntSushi/toml). HTML templates in `templates/` are embedded via `go:embed`, so rebuild after editing them.
+Single Go package (`main`), one external dependency (BurntSushi/toml). HTML templates and the email text (`templates/mail.txt`) in `templates/` are embedded via `go:embed`, so rebuild after editing them.
 
 ## Architecture
 
@@ -22,7 +22,7 @@ Email one-time-token SSO meant to sit behind Caddy's `forward_auth` (see `Caddyf
 - `auth.go` — `Server` (routing in `ServeHTTP`), HMAC-signed stateless cookies (`sign`/`parse`, a "kind" separates the session cookie from the `_pending` cookie), `/verify` handler, `clientIP` (honors `X-Forwarded-For` only from `trusted_proxies`), `safeRedirect`.
 - `login.go` — login/token/logout/index handlers and template rendering; `errorWriter` converts error responses (incl. the 403 from `/verify`) into HTML error pages.
 - `otp.go` — in-memory `OTPStore`: issuing with per-email and per-IP hourly rate limits, attempt-limited verification, sweeping.
-- `mail.go` — `Sender` interface and `SMTPSender` (tests inject a fake sender).
+- `mail.go` — `Sender` interface, `buildMessage` (renders `templates/mail.txt`: `subject` and `body` blocks) and `SMTPSender`. Tests inject a fake sender or a fake SMTP server (`mail_test.go`).
 
 Key design points:
 - Session cookies hold only the email; name/groups are re-read from config on every request, so removing a user revokes their sessions.

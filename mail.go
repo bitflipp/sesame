@@ -2,17 +2,50 @@ package main
 
 import (
 	"crypto/tls"
-	"fmt"
+	_ "embed"
 	"net"
 	"net/mail"
 	"net/smtp"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 )
 
 type Sender interface {
 	SendToken(to, code string, ttl time.Duration) error
+}
+
+//go:embed templates/mail.txt
+var mailTemplateText string
+
+var mailTemplate = template.Must(template.New("mail").Parse(mailTemplateText))
+
+// buildMessage renders the sign-in email (headers and body) with CRLF line endings.
+func buildMessage(from, to, code string, ttl time.Duration, now time.Time) ([]byte, error) {
+	data := struct {
+		Code    string
+		Minutes int
+	}{code, int(ttl.Minutes())}
+	var subject, body strings.Builder
+	if err := mailTemplate.ExecuteTemplate(&subject, "subject", data); err != nil {
+		return nil, err
+	}
+	if err := mailTemplate.ExecuteTemplate(&body, "body", data); err != nil {
+		return nil, err
+	}
+	head := []string{
+		"From: " + from,
+		"To: " + to,
+		"Subject: " + subject.String(),
+		"Date: " + now.Format(time.RFC1123Z),
+		"MIME-Version: 1.0",
+		"Content-Type: text/plain; charset=utf-8",
+		"",
+		"",
+	}
+	text := strings.ReplaceAll(body.String(), "\r\n", "\n")
+	return []byte(strings.Join(head, "\r\n") + strings.ReplaceAll(text, "\n", "\r\n")), nil
 }
 
 type SMTPSender struct {
@@ -24,17 +57,10 @@ func (s *SMTPSender) SendToken(to, code string, ttl time.Duration) error {
 	if err != nil {
 		return err
 	}
-	msg := strings.Join([]string{
-		"From: " + s.cfg.From,
-		"To: " + to,
-		"Subject: Your sign-in code: " + code,
-		"Date: " + time.Now().Format(time.RFC1123Z),
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		fmt.Sprintf("Your one-time sign-in code is:\r\n\r\n    %s\r\n\r\nIt expires in %d minutes. If you did not request it, ignore this message.\r\n",
-			code, int(ttl.Minutes())),
-	}, "\r\n")
+	msg, err := buildMessage(s.cfg.From, to, code, ttl, time.Now())
+	if err != nil {
+		return err
+	}
 
 	addr := net.JoinHostPort(s.cfg.Host, strconv.Itoa(s.cfg.Port))
 	tlsCfg := &tls.Config{ServerName: s.cfg.Host, MinVersion: tls.VersionTLS12}
@@ -77,7 +103,7 @@ func (s *SMTPSender) SendToken(to, code string, ttl time.Duration) error {
 	if err != nil {
 		return err
 	}
-	if _, err := w.Write([]byte(msg)); err != nil {
+	if _, err := w.Write(msg); err != nil {
 		return err
 	}
 	if err := w.Close(); err != nil {
