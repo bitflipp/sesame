@@ -1,20 +1,100 @@
 # sesame
 
-Tiny email one-time-token SSO for Caddy's `forward_auth`.
+Tiny email one-time-token SSO for [Caddy](https://caddyserver.com)'s `forward_auth`.
 
-1. Unauthenticated request → `/verify` answers `302` to the login portal.
-2. User enters their email; if allowed, a numeric code is sent via SMTP.
-3. User enters the code → signed session cookie (shared across `cookie_domain`).
-4. `/verify` checks the `[[access]]` rules for the requested host (`X-Forwarded-Host`): `403` if the user's email or groups don't match any rule (hosts with no rule are denied), otherwise `200` with `Remote-User`, `Remote-Email`, `Remote-Name`, `Remote-Groups`.
+No database, no identity provider, no JavaScript. Users type their email address, receive a
+numeric code over SMTP, and get a signed session cookie that works across all your subdomains.
+Access is controlled per host with a few lines of TOML.
 
-Sessions are stateless HMAC-signed cookies (they only hold the email; name and groups are
-re-read from the config on each request, so removing a user revokes them). Pending codes live
-in memory, so a restart invalidates unredeemed codes.
+## Features
 
+- **Passwordless login**: a numeric one-time code is sent by email (SMTP over STARTTLS, TLS, or plain).
+- **Single sign-on** across every app under one `cookie_domain`.
+- **Per-host authorization** by user or group, with wildcard domains. Hosts without a rule are denied.
+- **Stateless sessions**: HMAC-signed cookies that hold only the email. Name and groups are re-read
+  from the config on each request, so removing a user revokes their sessions immediately.
+- **Abuse protection**: per-email and per-IP rate limits, attempt-limited codes, same-origin checks.
+- **Small**: one Go binary, one config file, one dependency.
+
+## How it works
+
+1. An unauthenticated request hits Caddy, which asks sesame's `/verify`. Sesame answers `302` to the login portal.
+2. The user enters their email. If it is in the allowlist, a code is sent.
+3. The user enters the code and receives a session cookie shared across `cookie_domain`.
+4. `/verify` checks the `[[access]]` rules for the requested host (`X-Forwarded-Host`). It returns `403` if
+   nothing matches, otherwise `200` with the headers `Remote-User`, `Remote-Email`, `Remote-Name` and `Remote-Groups`.
+
+## Quick start
+
+```sh
+go build -o sesame .
+cp config.example.toml sesame.toml   # edit to taste
+./sesame -config sesame.toml
 ```
-go build -o sesame . && ./sesame -config sesame.toml
+
+Then add Caddy configuration like [`Caddyfile.example`](Caddyfile.example):
+
+```caddyfile
+auth.example.com {
+	reverse_proxy 127.0.0.1:9091
+}
+
+app.example.com {
+	forward_auth 127.0.0.1:9091 {
+		uri /verify
+		copy_headers Remote-User Remote-Email Remote-Name Remote-Groups
+	}
+	reverse_proxy 127.0.0.1:8080
+}
 ```
 
-See `config.example.toml` and `Caddyfile.example`. Caddy's `copy_headers` overwrites any
-client-supplied `Remote-*` headers, so upstreams can trust them as long as they are only
-reachable through Caddy. Endpoints: `/` (login state and sign-out button), `/verify`, `/login`, `/token`, `/logout` (POST signs out; GET just redirects home), `/healthz`. Errors, including the `403` that `/verify` returns to Caddy, are rendered as friendly HTML pages.
+## Configuration
+
+See [`config.example.toml`](config.example.toml) for all options. The essentials:
+
+```toml
+listen       = "127.0.0.1:9091"
+external_url = "https://auth.example.com"   # where the login portal is served
+secret       = "change-me-to-at-least-32-random-bytes!"  # or secret_file = "..."
+
+[session]
+cookie_domain = "example.com"   # parent domain shared by the portal and all apps
+
+[[users]]
+email  = "alice@example.org"
+groups = ["dev"]
+
+[[access]]
+domain  = "app.example.com"     # exact host or "*.example.com"
+subject = ["group:dev"]         # "user:<email>", "group:<name>", or "*"
+```
+
+## Endpoints
+
+| Path       | Purpose                                                       |
+|------------|---------------------------------------------------------------|
+| `/`        | Login state and sign-out button                               |
+| `/verify`  | `forward_auth` target for Caddy                               |
+| `/login`   | Email form                                                    |
+| `/token`   | Code entry form                                               |
+| `/logout`  | `POST` signs out; `GET` just redirects home                   |
+| `/healthz` | Health check                                                  |
+
+Errors, including the `403` that `/verify` returns to Caddy, are rendered as friendly HTML pages.
+
+## Security notes
+
+- Caddy's `copy_headers` overwrites any client-supplied `Remote-*` headers, so upstreams can trust
+  them as long as they are only reachable through Caddy.
+- `X-Forwarded-For` is only believed from peers listed in `trusted_proxies`.
+- Pending codes live in memory, so a restart invalidates unredeemed codes.
+
+## Development
+
+```sh
+go test ./...
+```
+
+## License
+
+[MIT](LICENSE)
