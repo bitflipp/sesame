@@ -546,6 +546,14 @@ func TestIndexPasskeySection(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(body, "passkey-add") || !strings.Contains(body, "You have no passkeys yet") {
 		t.Errorf("index passkey section: %d %s", w.Code, body)
 	}
+	// Account and passkeys are two separate groups, and sign-out belongs to
+	// the account group rather than trailing the passkey controls.
+	if strings.Count(body, `class="group"`) != 2 {
+		t.Errorf("expected account and passkey groups: %s", body)
+	}
+	if strings.Index(body, `action="/logout"`) > strings.Index(body, "Passkeys") {
+		t.Error("sign out rendered outside the account group")
+	}
 	if !strings.Contains(do(s, "GET", "/?passkeys=added", nil, session).Body.String(), "Passkey added") {
 		t.Error("added notice missing")
 	}

@@ -8,27 +8,58 @@
 <title>{{.L.T .Title}}</title>
 {{if .PasskeysEnabled}}<script src="/passkeys.js" defer></script>{{end}}
 <style>
-:root { color-scheme: light dark; }
-body { font: 16px/1.5 system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; }
+/* One spacing scale for the whole portal: blocks sit --space apart, the
+   contents of a control group --space-sm apart. */
+:root {
+  color-scheme: light dark;
+  --space: 1rem;
+  --space-sm: .5rem;
+  --radius: .5rem;
+  --line: color-mix(in srgb, currentColor 15%, transparent);
+}
+body { font: 16px/1.5 system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: var(--space); box-sizing: border-box; }
 main { width: min(24rem, 90vw); }
+h1, h2, p, dl, dd, ul { margin: 0; }
 h1 { font-size: 1.4rem; }
 h2 { font-size: 1.1rem; }
-input, button { font: inherit; padding: .6rem .8rem; width: 100%; box-sizing: border-box; margin-top: .5rem; }
+main > * + * { margin-top: var(--space); }
+
+/* Control groups: one bordered card per concern, heading first. */
+.group { padding: var(--space); border: 1px solid var(--line); border-radius: var(--radius); }
+.group > * + * { margin-top: var(--space-sm); }
+.group > form { margin-top: var(--space); }
+
+/* Identity: label/value rows rather than loose lines. */
+.identity { display: grid; grid-template-columns: auto 1fr; gap: var(--space-sm) var(--space); }
+.identity dt { opacity: .7; font-size: .9rem; }
+.identity dd { overflow-wrap: anywhere; }
+
+input, button, select { font: inherit; }
+input, button { width: 100%; padding: .6rem .8rem; box-sizing: border-box; }
 button { cursor: pointer; }
+form { display: grid; gap: var(--space-sm); }
+label { font-size: .9rem; }
+
 .err { color: #c00; }
 .ok { color: #070; }
-.code { font-size: 3rem; font-weight: 700; opacity: .3; margin: 0; }
 .muted { opacity: .7; font-size: .9rem; }
-.passkeys { list-style: none; padding: 0; margin: 0; }
-.passkeys li { display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: .5rem; padding: .4rem 0; border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent); }
+.code { font-size: 3rem; font-weight: 700; opacity: .3; }
+
+.passkeys { list-style: none; padding: 0; }
+.passkeys li { display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: var(--space); padding: var(--space-sm) 0; border-bottom: 1px solid var(--line); }
+.passkeys li:last-child { border-bottom: 0; }
 .passkey-name { font-weight: 600; }
-.passkeys form { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
-button.link { width: auto; margin: 0; padding: 0; border: 0; background: none; color: inherit; text-decoration: underline; }
-.lang { position: absolute; top: .75rem; right: .75rem; display: flex; gap: .25rem; }
-.lang select, .lang button { width: auto; margin: 0; padding: .25rem .4rem; font-size: .85rem; }
+.passkeys form { grid-column: 2; grid-row: 1 / span 2; }
+button.link { width: auto; padding: 0; border: 0; background: none; color: inherit; text-decoration: underline; }
+
+/* The switcher floats in the corner; reserve its height so page content
+   can never slide underneath it. */
+body.has-lang { padding-top: 3.5rem; }
+.lang { position: absolute; top: var(--space); right: var(--space); display: flex; gap: var(--space-sm); }
+.lang select, .lang button { width: auto; padding: .25rem .4rem; font-size: .85rem; }
 </style>
 </head>
-<body>
+<body{{if .L.Options}} class="has-lang"{{end}}>
 <main>
 {{template "content" .}}
 </main>

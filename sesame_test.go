@@ -428,6 +428,11 @@ func TestIndex(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(b, "alice@example.com") || !strings.Contains(b, "admins, dev") || !strings.Contains(b, `action="/logout"`) {
 		t.Errorf("signed-in index: %d %s", w.Code, b)
 	}
+	// The account details and the sign-out control form one group; without a
+	// passkey store that is the only group on the page.
+	if !strings.Contains(b, "Your account") || strings.Count(b, `class="group"`) != 1 {
+		t.Errorf("account group missing or not alone: %s", b)
+	}
 }
 
 func TestLogout(t *testing.T) {

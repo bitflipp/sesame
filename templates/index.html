@@ -1,10 +1,19 @@
 {{define "content"}}
 {{if .User}}
 <h1>{{.L.T "index_in_heading"}}</h1>
-<p>{{if .User.Name}}{{.User.Name}}<br>{{end}}<span class="muted">{{.User.Email}}</span></p>
-{{if .User.Groups}}<p class="muted">{{.L.T "index_groups"}} {{range $i, $g := .User.Groups}}{{if $i}}, {{end}}{{$g}}{{end}}</p>{{end}}
+<section class="group">
+<h2>{{.L.T "index_me_heading"}}</h2>
+<dl class="identity">
+{{if .User.Name}}<dt>{{.L.T "index_name_label"}}</dt><dd>{{.User.Name}}</dd>{{end}}
+<dt>{{.L.T "index_email_label"}}</dt><dd>{{.User.Email}}</dd>
+{{if .User.Groups}}<dt>{{.L.T "index_groups"}}</dt><dd>{{range $i, $g := .User.Groups}}{{if $i}}, {{end}}{{$g}}{{end}}</dd>{{end}}
+</dl>
+<form method="post" action="/logout">
+<button type="submit">{{.L.T "index_sign_out"}}</button>
+</form>
+</section>
 {{if .PasskeysEnabled}}
-<section>
+<section class="group">
 <h2>{{.L.T "passkey_heading"}}</h2>
 {{if .PasskeyNotice}}<p class="ok">{{.L.T .PasskeyNotice}}</p>{{end}}
 {{if .Passkeys}}
@@ -31,9 +40,6 @@
 </form>
 </section>
 {{end}}
-<form method="post" action="/logout">
-  <button type="submit">{{.L.T "index_sign_out"}}</button>
-</form>
 {{else}}
 <h1>{{.L.T "index_out_heading"}}</h1>
 <p class="muted">{{.L.T "index_out_hint"}}</p>
