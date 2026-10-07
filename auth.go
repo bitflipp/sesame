@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -49,8 +50,25 @@ func NewServer(cfg *Config, sender Sender) *Server {
 	s.mux.HandleFunc("GET /lang", s.handleLang)
 	s.mux.HandleFunc("GET /logout", s.handleLogout)
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
+	s.mux.HandleFunc("GET /icon.svg", serveIcon("icon.svg", "image/svg+xml"))
+	s.mux.HandleFunc("GET /apple-touch-icon.png", serveIcon("apple-touch-icon.png", "image/png"))
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok\n")) })
 	return s
+}
+
+//go:embed icon.svg apple-touch-icon.png
+var iconFS embed.FS
+
+func serveIcon(name, contentType string) http.HandlerFunc {
+	data, err := iconFS.ReadFile(name)
+	if err != nil {
+		panic(err)
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(data)
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +77,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "same-origin")
 	// No form-action: browsers apply it to redirects after a form POST, which
 	// would block the redirect back to the protected app.
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("X-Frame-Options", "DENY") // legacy twin of frame-ancestors
 	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
