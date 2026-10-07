@@ -26,6 +26,7 @@ type Config struct {
 	Session SessionConfig `toml:"session"`
 	Token   TokenConfig   `toml:"token"`
 	SMTP    SMTPConfig    `toml:"smtp"`
+	Passkey PasskeyConfig `toml:"passkey"`
 	Access  []AccessRule  `toml:"access"`
 	Users   []User        `toml:"users"`
 
@@ -57,6 +58,17 @@ type SMTPConfig struct {
 	Username string `toml:"username"`
 	Password string `toml:"password"`
 	From     string `toml:"from"`
+}
+
+// PasskeyConfig enables WebAuthn passkeys. An empty Store disables the whole
+// feature, so configurations written before passkeys existed keep working
+// unchanged. RPID is the WebAuthn Relying Party ID (a registrable domain); it
+// defaults to session.cookie_domain so one passkey covers every subdomain, and
+// RPName is the human-readable name shown by authenticators.
+type PasskeyConfig struct {
+	Store  string `toml:"store"`
+	RPID   string `toml:"rp_id"`
+	RPName string `toml:"rp_name"`
 }
 
 // AccessRule grants the listed subjects access to a protected host. Domain is
@@ -167,6 +179,26 @@ func (c *Config) validate() error {
 		s.Lifetime = 12 * time.Hour
 	}
 
+	p := &c.Passkey
+	if p.Store != "" {
+		if p.RPID == "" {
+			p.RPID = s.CookieDomain
+		}
+		p.RPID = strings.ToLower(strings.TrimSuffix(p.RPID, "."))
+		if net.ParseIP(p.RPID) != nil {
+			return errors.New("passkey.rp_id must be a domain name, not an IP address")
+		}
+		if host != p.RPID && !strings.HasSuffix(host, "."+p.RPID) {
+			return errors.New("passkey.rp_id must equal the host of external_url or a parent of it")
+		}
+		if labelCount(p.RPID) < 2 && labelCount(p.RPID) < labelCount(host) {
+			return errors.New("passkey.rp_id must not be a top-level domain")
+		}
+		if p.RPName == "" {
+			p.RPName = "Sesame"
+		}
+	}
+
 	t := &c.Token
 	if t.Length == 0 {
 		t.Length = 8
@@ -247,6 +279,11 @@ func (c *Config) Lookup(email string) (User, bool) {
 	u, ok := c.users[email]
 	return u, ok
 }
+
+// PasskeysEnabled reports whether passkey authentication and management are
+// configured. The feature is opt-in: without a store path there is nowhere to
+// keep credential records, so every passkey route stays unregistered.
+func (c *Config) PasskeysEnabled() bool { return c.Passkey.Store != "" }
 
 func normalizeEmail(s string) (string, error) {
 	s = strings.TrimSpace(s)

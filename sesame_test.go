@@ -43,7 +43,11 @@ func testConfig(t *testing.T) *Config {
 
 func newTestServer(t *testing.T) (*Server, *fakeSender) {
 	f := &fakeSender{codes: make(chan string, 10)}
-	return NewServer(testConfig(t), f), f
+	s, err := NewServer(testConfig(t), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, f
 }
 
 func do(s *Server, method, target string, form url.Values, cookies ...*http.Cookie) *httptest.ResponseRecorder {

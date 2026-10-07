@@ -3,6 +3,34 @@
 <h1>{{.L.T "index_in_heading"}}</h1>
 <p>{{if .User.Name}}{{.User.Name}}<br>{{end}}<span class="muted">{{.User.Email}}</span></p>
 {{if .User.Groups}}<p class="muted">{{.L.T "index_groups"}} {{range $i, $g := .User.Groups}}{{if $i}}, {{end}}{{$g}}{{end}}</p>{{end}}
+{{if .PasskeysEnabled}}
+<section>
+<h2>{{.L.T "passkey_heading"}}</h2>
+{{if .PasskeyNotice}}<p class="ok">{{.L.T .PasskeyNotice}}</p>{{end}}
+{{if .Passkeys}}
+<ul class="passkeys">
+{{range .Passkeys}}
+<li>
+<span class="passkey-name">{{if .Name}}{{.Name}}{{else}}{{$.L.T "passkey_unnamed"}}{{end}}</span>
+<span class="muted">{{.CreatedAt.Format "2006-01-02"}}{{if not .LastUsedAt.IsZero}} &middot; {{$.L.T "passkey_last_used"}} {{.LastUsedAt.Format "2006-01-02"}}{{end}}</span>
+<form method="post" action="/passkeys/delete">
+<input type="hidden" name="id" value="{{.IDBase64}}">
+<button type="submit" class="link">{{$.L.T "passkey_remove"}}</button>
+</form>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p class="muted">{{.L.T "passkey_none"}}</p>
+{{end}}
+<p class="err" id="passkey-error" hidden data-message="{{.L.T "passkey_failed"}}"></p>
+<form id="passkey-add" data-passkey hidden>
+<label for="passkey-name">{{.L.T "passkey_name_label"}}</label>
+<input id="passkey-name" maxlength="64" autocomplete="off">
+<button type="submit">{{.L.T "passkey_add"}}</button>
+</form>
+</section>
+{{end}}
 <form method="post" action="/logout">
   <button type="submit">{{.L.T "index_sign_out"}}</button>
 </form>

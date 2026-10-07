@@ -25,6 +25,12 @@ username = "auth@example.com"
 password = "app-password"
 from     = "Sesame <auth@example.com>"
 
+[passkey]                              # optional; delete this whole section to disable passkeys
+store   = "/var/lib/sesame/passkeys.db"  # bbolt file holding credential records; must be writable by sesame
+# rp_id = "example.com"                # WebAuthn relying party ID; defaults to session.cookie_domain, and
+                                       # must be the portal host or a parent of it
+# rp_name = "Sesame"                   # name authenticators display when asking to create a passkey
+
 [[users]]                           # only these addresses can sign in; name and groups are optional
 email  = "alice@example.org"
 name   = "Alice"

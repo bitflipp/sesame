@@ -5,7 +5,8 @@ config reference) lives in `README.md`; don't duplicate it here.
 
 ## Verify your work
 
-Single Go module (`package main`), one external dependency (`github.com/BurntSushi/toml`).
+Single Go module (`package main`). Direct dependencies: `github.com/BurntSushi/toml` (config),
+`github.com/go-webauthn/webauthn` (passkey ceremonies) and `go.etcd.io/bbolt` (passkey store).
 
 ```sh
 go vet ./...                       # must be clean
@@ -42,11 +43,16 @@ go build -o sesame .               # then: ./sesame -config sesame.toml
   attempt-limited verification, sweeping.
 - `mail.go` — `Sender` interface, `buildMessage` (renders `templates/mail.<lang>.txt`, falling back
   to `en`: `subject` and `body` blocks) and `SMTPSender`.
+- `passkey.go` — optional WebAuthn support: the bbolt-backed `PasskeyStore` (credentials plus opaque
+  per-user handles), the in-memory `ceremonyStore` for in-flight challenges, the `webauthn.User`
+  adapter, and the register/login/delete handlers. `passkeys.js` (embedded) drives the ceremonies
+  from the browser and is served at `/passkeys.js`.
 
 Tests: `sesame_test.go` (handlers and flows), `security_test.go` (CSRF, redirects, headers, rate
 limits), `i18n_test.go` (catalog parity, language matching), `mail_test.go` (message building,
-fake SMTP), `coverage_test.go` (edge paths, sweeper). Tests inject a fake sender or a fake SMTP
-server rather than reaching for a real one.
+fake SMTP), `coverage_test.go` (edge paths, sweeper), `passkey_test.go` (store, ceremonies,
+handlers, and an ES256 soft-authenticator end-to-end flow). Tests inject a fake sender or a fake
+SMTP server rather than reaching for a real one.
 
 ## Invariants: ask before changing
 
@@ -68,7 +74,11 @@ propose the change and wait for a decision instead of picking a plausible-lookin
 - **Same-origin / CSRF checks** and the token attempt and rate-limit limits.
 - **Config schema.** Prefer additive keys with defaults in `validate()`; a breaking rename invalidates
   every existing `sesame.toml`.
-- **Dependencies.** One today on purpose. Adding a second is a maintainer decision.
+- **Dependencies.** Kept deliberately small: TOML parsing, the WebAuthn library, and bbolt. Adding
+  another is a maintainer decision.
+- **The passkey store and its schema** (`PasskeyStore` buckets and the `Passkey` record). Credentials
+  are public data, but changing the record shape or keying without a migration strands registered
+  passkeys.
 
 ## Conventions
 
@@ -76,6 +86,9 @@ propose the change and wait for a decision instead of picking a plausible-lookin
   are re-read from config on every request, which is what makes removing a user revoke their sessions
   immediately. Don't "optimize" this into the cookie.
 - **Pending OTPs are in memory only.** A restart invalidating unredeemed codes is intended.
+- **Passkey ceremonies are in memory only too**, and their cookie is signed with a domain-separated
+  MAC (`webauthn\x00` prefix, see `ceremonyToken`) rather than reusing `sign`/`parse`; keep that
+  separation so a ceremony cookie can never be accepted as a session.
 - **Never hardcode English in handlers or templates.** UI strings go through `Localizer.T` with keys
   present in *every* catalog; `TestCatalogParity` fails if a language drifts.
 - **Errors become HTML pages** via `errorWriter`, including `/verify`'s 403.

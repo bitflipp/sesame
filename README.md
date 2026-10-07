@@ -4,11 +4,17 @@
 
 A tiny email one-time-token SSO for [Caddy](https://caddyserver.com)'s `forward_auth`.
 
-No database and no identity provider. Users type their email address, receive a numeric code over SMTP, and get a signed session cookie that works across all your subdomains. Access is controlled per host with a few lines of TOML. `sesame` is a single Go binary with one config file.
+No external database and no identity provider. Users sign in with a numeric code sent over SMTP — or,
+once they have registered one, with a passkey — and get a signed session cookie that works across all
+your subdomains. Access is controlled per host with a few lines of TOML. `sesame` is a single Go
+binary with one config file; passkeys, when enabled, live in one local key/value file.
 
 ## Features
 
 - **Passwordless login**: a numeric one-time code is sent by email (SMTP over STARTTLS, TLS, or plain).
+- **Passkeys (WebAuthn)**: optional discoverable credentials for usernameless, phishing-resistant
+  sign-in. Users register and manage their own passkeys from the index page after signing in; the
+  email code remains available for bootstrapping and recovery.
 - **Single sign-on** across every app under one `cookie_domain`.
 - **Per-host authorization** by user or group, with wildcard domains. Hosts without a rule are denied.
 - **Stateless sessions**: HMAC-signed cookies that hold only the email. Name and groups are re-read
@@ -17,15 +23,17 @@ No database and no identity provider. Users type their email address, receive a 
 - **Multilingual**: English and German pages and emails. The language follows a switcher cookie, then the
   browser's `Accept-Language`, then `default_language`. To add one, drop in `locales/<lang>.toml` and
   `templates/mail.<lang>.txt`.
-- **Small**: one Go binary, one config file, one dependency
+- **Small**: one Go binary, one config file
 
 ## How it works
 
 1. An unauthenticated request hits Caddy, which asks sesame's `/verify`. Sesame answers `302` to the login portal.
-2. The user enters their email. If it is in the allowlist, a code is sent.
-3. The user enters the code and receives a session cookie shared across `cookie_domain`.
+2. The user enters their email. If it is in the allowlist, a code is sent. They can also press
+   **Sign in with a passkey** to skip the code when they have registered one.
+3. The user enters the code (or completes the passkey prompt) and receives a session cookie shared across `cookie_domain`.
 4. `/verify` checks the `[[access]]` rules for the requested host (`X-Forwarded-Host`). It returns `403` if
    nothing matches, otherwise `200` with the headers `Remote-User`, `Remote-Email`, `Remote-Name` and `Remote-Groups`.
+5. Once signed in, the index page lists the user's passkeys and lets them add or remove them.
 
 ## Usage
 
@@ -63,6 +71,9 @@ secret       = "change-me-to-at-least-32-random-bytes!"  # or secret_file = "...
 [session]
 cookie_domain = "example.com"   # parent domain shared by the portal and all apps
 
+[passkey]                       # optional; omit to disable passkeys
+store = "/var/lib/sesame/passkeys.db"
+
 [[users]]
 email  = "alice@example.org"
 groups = ["dev"]
@@ -72,19 +83,27 @@ domain  = "app.example.com"     # exact host or "*.example.com"
 subject = ["group:dev"]         # "user:<email>", "group:<name>", or "*"
 ```
 
+`rp_id` defaults to `session.cookie_domain`, which is what lets one passkey cover the portal and its
+siblings. `store` must point at a writable path; sesame creates the file (mode `0600`) on first start.
+
 ## Endpoints
 
 | Path       | Purpose                                                       |
 |------------|---------------------------------------------------------------|
-| `/`        | Login state and sign-out button                               |
+| `/`        | Login state, passkey management, and sign-out button          |
 | `/verify`  | `forward_auth` target for Caddy                               |
-| `/login`   | Email form                                                    |
+| `/login`   | Email form and the passkey sign-in button                     |
 | `/token`   | Code entry form                                               |
+| `/passkeys/register/begin` / `.../finish` | Passkey registration ceremony (`POST`, signed in) |
+| `/passkeys/login/begin` / `.../finish`    | Usernameless passkey login ceremony (`POST`)      |
+| `/passkeys/delete` | Remove one of your passkeys (`POST`, signed in)       |
+| `/passkeys.js` | Page script that drives the passkey ceremonies            |
 | `/lang`    | `?set=de&rd=/path` stores the language cookie and redirects   |
 | `/logout`  | `POST` signs out; `GET` just redirects home                   |
 | `/healthz` | Health check                                                  |
 
 Errors, including the `403` that `/verify` returns to Caddy, are rendered as friendly HTML pages.
+The passkey endpoints answer JSON instead, since only the page script calls them.
 
 ### Security notes
 
@@ -101,11 +120,20 @@ Errors, including the `403` that `/verify` returns to Caddy, are rendered as fri
 - `smtp.tls = "none"` sends codes unencrypted and warns at startup; use `starttls` or `tls` unless the
   relay is on localhost.
 - Pending codes live in memory, so a restart invalidates unredeemed codes.
+- Passkeys are client-side discoverable credentials, so sign-in needs no username and reveals whether
+  an account exists only by failing generically. The relying party ID defaults to `session.cookie_domain`
+  and is checked at startup to be the portal host or a parent of it.
+- The passkey store holds credential IDs, public keys and opaque random user handles — never private
+  keys. It is created `0600`; keep it on a path only sesame can read.
+- Registering a passkey requires a signed-in session, and deleting one checks ownership. In-flight
+  ceremonies live in memory, expire after five minutes and are single-use. Starting a login ceremony
+  is rate limited per client IP, so cheap requests cannot grow that state without bound.
 
 ## Requirements
 
 - Go (to build) and an SMTP server for sending codes
 - Caddy, or any reverse proxy with a `forward_auth`-style subrequest
+- HTTPS for passkeys (browsers only run WebAuthn in a secure context; `localhost` counts)
 
 ## Running the tests
 

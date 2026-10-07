@@ -26,7 +26,14 @@ func main() {
 	if cfg.SMTP.TLS == "none" && !isLocalHost(cfg.SMTP.Host) {
 		log.Printf("warning: smtp.tls = \"none\": one-time codes are sent unencrypted to %s", cfg.SMTP.Host)
 	}
-	srv := NewServer(cfg, &SMTPSender{cfg: cfg.SMTP})
+	srv, err := NewServer(cfg, &SMTPSender{cfg: cfg.SMTP})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer srv.Close()
+	if cfg.PasskeysEnabled() {
+		log.Printf("passkeys enabled (rp_id %s, store %s)", cfg.Passkey.RPID, cfg.Passkey.Store)
+	}
 
 	stop := make(chan struct{})
 	go srv.Run(stop)

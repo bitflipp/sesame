@@ -1,6 +1,10 @@
 {{define "content"}}
 <h1>{{.L.T "login_heading"}}</h1>
 {{if .Error}}<p class="err">{{.L.T .Error}}</p>{{end}}
+{{if .PasskeysEnabled}}
+<button type="button" id="passkey-login" data-passkey data-rd="{{.RD}}" hidden>{{.L.T "login_passkey"}}</button>
+<p class="err" id="passkey-error" hidden data-message="{{.L.T "passkey_failed"}}"></p>
+{{end}}
 <form method="post" action="/login">
   <input type="hidden" name="rd" value="{{.RD}}">
   <label for="email">{{.L.T "login_email_label"}}</label>

@@ -15,6 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 const (
@@ -38,13 +41,51 @@ type Server struct {
 	mux    *http.ServeMux
 	now    func() time.Time
 
+	// These are non-nil only when [passkey] store is configured.
+	passkeys *PasskeyStore
+	webauthn *webauthn.WebAuthn
+	ceremony *ceremonyStore
+
+	// passkeyBegins bounds the unauthenticated login-begin endpoint per IP.
+	passkeyBegins *beginLimiter
+
 	// warnUntrustedXFF rate-limits the "X-Forwarded-For ignored" warning to one
 	// line per process.
 	warnUntrustedXFF sync.Once
 }
 
-func NewServer(cfg *Config, sender Sender) *Server {
-	s := &Server{cfg: cfg, otp: NewOTPStore(cfg.Token), sender: sender, now: time.Now}
+func NewServer(cfg *Config, sender Sender) (*Server, error) {
+	s := &Server{
+		cfg: cfg, otp: NewOTPStore(cfg.Token), sender: sender, now: time.Now,
+		ceremony:      newCeremonyStore(passkeyCeremonyTTL),
+		passkeyBegins: newBeginLimiter(passkeyBeginLimit, passkeyBeginWindow),
+	}
+	if cfg.PasskeysEnabled() {
+		// One relying party covers the portal origin. The RP ID defaults to the
+		// cookie domain so a passkey registered here stays usable across the
+		// portal's subdomains; config validation guarantees the origin is that
+		// domain or a child of it, which WebAuthn requires.
+		w, err := webauthn.New(&webauthn.Config{
+			RPID:          cfg.Passkey.RPID,
+			RPDisplayName: cfg.Passkey.RPName,
+			RPOrigins:     []string{cfg.external.Scheme + "://" + cfg.external.Host},
+			AuthenticatorSelection: protocol.AuthenticatorSelection{
+				// Discoverable credentials are what make usernameless sign-in
+				// possible; user verification is preferred rather than required
+				// so a security key without a PIN still works.
+				ResidentKey:      protocol.ResidentKeyRequirementRequired,
+				UserVerification: protocol.VerificationPreferred,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		store, err := OpenPasskeyStore(cfg.Passkey.Store)
+		if err != nil {
+			return nil, err
+		}
+		s.webauthn, s.passkeys = w, store
+	}
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/verify", s.handleVerify)
 	s.mux.HandleFunc("GET /login", s.handleLoginForm)
@@ -58,7 +99,23 @@ func NewServer(cfg *Config, sender Sender) *Server {
 	s.mux.HandleFunc("GET /icon.svg", serveIcon("icon.svg", "image/svg+xml"))
 	s.mux.HandleFunc("GET /apple-touch-icon.png", serveIcon("apple-touch-icon.png", "image/png"))
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok\n")) })
-	return s
+	if s.webauthn != nil {
+		s.mux.HandleFunc("POST /passkeys/register/begin", s.handlePasskeyRegisterBegin)
+		s.mux.HandleFunc("POST /passkeys/register/finish", s.handlePasskeyRegisterFinish)
+		s.mux.HandleFunc("POST /passkeys/login/begin", s.handlePasskeyLoginBegin)
+		s.mux.HandleFunc("POST /passkeys/login/finish", s.handlePasskeyLoginFinish)
+		s.mux.HandleFunc("POST /passkeys/delete", s.handlePasskeyDelete)
+		s.mux.HandleFunc("GET /passkeys.js", servePasskeyJS)
+	}
+	return s, nil
+}
+
+// Close releases the passkey database, if one is open.
+func (s *Server) Close() error {
+	if s.passkeys != nil {
+		return s.passkeys.Close()
+	}
+	return nil
 }
 
 //go:embed icon.svg apple-touch-icon.png
@@ -81,8 +138,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "same-origin")
 	// No form-action: browsers apply it to redirects after a form POST, which
-	// would block the redirect back to the protected app.
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+	// would block the redirect back to the protected app. script-src and
+	// connect-src are limited to our own origin for the passkey page script.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("X-Frame-Options", "DENY") // legacy twin of frame-ancestors
 	w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 	w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
@@ -276,7 +334,7 @@ func (s *Server) clientIP(r *http.Request) string {
 	return addr.String()
 }
 
-// Run starts the periodic sweep of expired tokens.
+// Run starts the periodic sweep of expired tokens and passkey ceremonies.
 func (s *Server) Run(stop <-chan struct{}) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
@@ -284,6 +342,8 @@ func (s *Server) Run(stop <-chan struct{}) {
 		select {
 		case <-t.C:
 			s.otp.Sweep()
+			s.ceremony.sweep()
+			s.passkeyBegins.sweep()
 		case <-stop:
 			return
 		}

@@ -31,6 +31,10 @@ type pageData struct {
 	Code  int    // error: HTTP status
 	Msg   string // error: catalog key of the friendly explanation
 	Home  string // error: absolute link to the portal
+
+	PasskeysEnabled bool          // [passkey] store is configured
+	Passkeys        []passkeyView // index: the signed-in user's credentials
+	PasskeyNotice   string        // index: catalog key for a one-shot notice
 }
 
 // renderError writes a friendly error page for the given status.
@@ -72,9 +76,22 @@ func (e *errorWriter) Write(b []byte) (int, error) {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	d := pageData{Title: "title_index"}
+	d := pageData{Title: "title_index", PasskeysEnabled: s.cfg.PasskeysEnabled()}
 	if u, ok := s.session(r); ok {
 		d.User = &u
+		if s.cfg.PasskeysEnabled() {
+			if records, err := s.passkeys.List(u.Email); err != nil {
+				s.logf("listing passkeys for %s: %v", u.Email, err)
+			} else {
+				d.Passkeys = passkeyViews(records)
+			}
+			switch r.URL.Query().Get("passkeys") {
+			case "added":
+				d.PasskeyNotice = "passkey_added"
+			case "removed":
+				d.PasskeyNotice = "passkey_removed"
+			}
+		}
 	}
 	s.render(w, r, http.StatusOK, "index", d)
 }
@@ -116,7 +133,7 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	s.render(w, r, http.StatusOK, "login", pageData{Title: "title_login", RD: rd})
+	s.render(w, r, http.StatusOK, "login", pageData{Title: "title_login", RD: rd, PasskeysEnabled: s.cfg.PasskeysEnabled()})
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
