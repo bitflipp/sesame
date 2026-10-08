@@ -173,7 +173,7 @@ test with each behavior change.
 
 Parts of this project were written with AI assistance. The models involved:
 
-- Claude Sonnet 5.5
+- Claude Sonnet
 - DeepSeek Flash
 
 ## License
