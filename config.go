@@ -85,7 +85,7 @@ type User struct {
 	Groups []string `toml:"groups"`
 }
 
-// placeholderSecret is the value shipped in config.example.toml. Copying it
+// placeholderSecret is the value shipped in sesame.example.toml. Copying it
 // would make every session cookie forgeable, so validate rejects it outright.
 const placeholderSecret = "change-me-to-at-least-32-random-bytes!"
 
@@ -130,7 +130,7 @@ func (c *Config) validate() error {
 		return errors.New("secret must be at least 32 bytes")
 	}
 	if secret == placeholderSecret {
-		return errors.New("secret is the example placeholder from config.example.toml; generate a random one")
+		return errors.New("secret is the example placeholder from sesame.example.toml; generate a random one")
 	}
 	c.secretBytes = []byte(secret)
 

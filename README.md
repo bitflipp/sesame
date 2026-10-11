@@ -38,7 +38,7 @@ binary with one config file; passkeys, when enabled, live in one local key/value
 ## Quick start
 
 ```sh
-go build -o sesame .
+go build .
 ```
 
 Point Caddy at it ([`Caddyfile.example`](Caddyfile.example)):
@@ -60,7 +60,7 @@ app.example.com {
 Then write a config and run it:
 
 ```sh
-cp config.example.toml sesame.toml
+cp sesame.example.toml sesame.toml
 sed -i "s|change-me-to-at-least-32-random-bytes!|$(openssl rand -base64 32)|" sesame.toml
 $EDITOR sesame.toml             # listen, external_url, cookie_domain, [smtp], [[users]], [[access]]
 ./sesame -config sesame.toml
@@ -72,14 +72,14 @@ instead of `secret`.
 
 ## Configuration
 
-See [`config.example.toml`](config.example.toml) for every option and its default. The essentials:
+See [`sesame.example.toml`](sesame.example.toml) for every option and its default. The essentials:
 
 ```toml
 listen       = "127.0.0.1:9091"
 external_url = "https://auth.example.com"   # where the login portal is served
 secret       = "change-me-to-at-least-32-random-bytes!"  # 32+ bytes, or use secret_file = "..."
 
-[smtp]                          # see config.example.toml; host and from are required
+[smtp]                          # see sesame.example.toml; host and from are required
 host     = "smtp.example.com"
 tls      = "starttls"
 username = "auth@example.com"
@@ -137,7 +137,7 @@ The passkey endpoints answer JSON instead, since only the page script calls them
   so a crafted `rd` cannot bounce users to another site.
 - Set `session.cookie_domain` to the registrable domain (`example.com`), not a public suffix such as
   `com` or `co.uk`; single-label domains are rejected at startup.
-- The example `secret` from `config.example.toml` is rejected; generate a random one. A secret with
+- The example `secret` from `sesame.example.toml` is rejected; generate a random one. A secret with
   very few distinct bytes is flagged with a startup warning.
 - `smtp.tls = "none"` sends codes unencrypted and warns at startup; use `starttls` or `tls` unless the
   relay is on localhost.
@@ -162,7 +162,7 @@ The passkey endpoints answer JSON instead, since only the page script calls them
 ```sh
 go vet ./...      # must be clean
 go test ./...     # hermetic suite: httptest servers and a fake SMTP listener on loopback
-go build -o sesame .
+go build .
 ```
 
 The suite needs no network, no config file and no environment variables. `templates/` and `locales/`
