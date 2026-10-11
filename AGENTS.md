@@ -8,12 +8,16 @@ config reference) lives in `README.md`; don't duplicate it here.
 Single Go module (`package main`). Direct dependencies: `github.com/BurntSushi/toml` (config),
 `github.com/go-webauthn/webauthn` (passkey ceremonies) and `go.etcd.io/bbolt` (passkey store).
 
+A `justfile` wraps the common commands (`just` lists them); builds go to `dist/`.
+
 ```sh
-go vet ./...                       # must be clean
-go test ./...                      # whole suite, ~0.2s
-go test -run TestFullLoginFlow .   # a single test
-go build -o sesame .               # then: ./sesame -config sesame.toml
+just check                # gofmt + go vet (must be clean) + whole suite, ~0.2s
+just test TestFullLoginFlow   # a single test
+just build                # dist/sesame
+just run                  # build, then dist/sesame -config sesame.toml
 ```
+
+The plain equivalents are `go vet ./...`, `go test ./...` and `go build -o dist/sesame .`.
 
 - The suite is hermetic: `httptest` servers and a fake SMTP listener on loopback. No network, no
   config file, no environment variables. If a new test needs any of those, that is a design smell
@@ -22,7 +26,7 @@ go build -o sesame .               # then: ./sesame -config sesame.toml
   entire gate, so run both before claiming something works.
 - `templates/` and `locales/` are embedded with `go:embed`. **Rebuild after editing them**, and do
   not trust an already-running binary when checking markup or copy.
-- `./sesame` and `./sesame.toml` are gitignored. Never commit a real secret or SMTP password.
+- `dist/` and `./sesame.toml` are gitignored. Never commit a real secret or SMTP password.
 
 ## Layout
 
