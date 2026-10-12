@@ -9,7 +9,7 @@ default:
 build:
     go build -o dist/sesame .
 
-# Build, then run with the given config (copy config.example.toml to sesame.toml first)
+# Build, then run with the given config (copy sesame.toml.example to sesame.toml first)
 run: build
     ./dist/sesame -config {{config}}
 
