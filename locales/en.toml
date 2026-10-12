@@ -25,7 +25,6 @@ index_email_label = "Email"
 index_groups = "Groups"
 index_sign_out = "Sign out"
 index_out_heading = "You are signed out"
-index_out_hint = "Sign in with your email address to continue."
 index_sign_in = "Sign in"
 
 passkey_heading = "Passkeys"
