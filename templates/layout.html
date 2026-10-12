@@ -99,9 +99,9 @@ button.link:hover { transform: none; }
    can never slide underneath it. */
 body.has-lang { padding-top: 3.5rem; }
 .lang { position: absolute; top: var(--space); right: var(--space); display: flex; gap: var(--space-sm); font-size: .85rem; }
-.lang a { padding: .25rem .6rem; border-radius: 999px; text-decoration: none; color: inherit; border: 1px solid var(--line); background: var(--card); }
-.lang a:hover { border-color: var(--accent); }
-.lang a[aria-current] { color: var(--accent-ink); border-color: transparent; background: linear-gradient(135deg, var(--accent), var(--accent-2)); font-weight: 600; }
+.lang a { padding: .25rem .6rem; border-radius: 999px; text-decoration: none; color: inherit; background: var(--card); }
+.lang a:hover { color: var(--accent); }
+.lang a[aria-current] { color: var(--accent-ink); background: linear-gradient(135deg, var(--accent), var(--accent-2)); font-weight: 600; }
 </style>
 </head>
 <body{{if .L.Options}} class="has-lang"{{end}}>
