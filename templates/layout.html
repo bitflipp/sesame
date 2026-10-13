@@ -41,7 +41,13 @@
 }
 body {
   font: 16px/1.5 system-ui, sans-serif; color: var(--ink);
-  display: grid; place-items: center; min-height: 100vh; margin: 0; padding: var(--space); box-sizing: border-box;
+  min-height: 100vh; min-height: 100dvh; margin: 0; padding: var(--space); box-sizing: border-box;
+  /* Three rows with equal flexible tracks above and below the card keep it
+     centered. A flexible track never shrinks below its content, so once the
+     viewport is too short for the language switcher to fit beside the card,
+     the top row stops shrinking and the switcher sits above the card instead
+     of under it. */
+  display: grid; grid-template-rows: 1fr auto 1fr; gap: var(--space); place-items: center;
   background:
     radial-gradient(40rem 30rem at 10% -10%, color-mix(in srgb, var(--accent) 28%, transparent), transparent),
     radial-gradient(35rem 28rem at 100% 110%, color-mix(in srgb, var(--accent-2) 26%, transparent), transparent),
@@ -49,7 +55,7 @@ body {
   background-attachment: fixed;
 }
 main {
-  width: min(24rem, 90vw); padding: 1.75rem; box-sizing: border-box;
+  grid-row: 2; width: min(24rem, 90vw); padding: 1.75rem; box-sizing: border-box;
   background: var(--card); border-radius: calc(var(--radius) * 1.5); box-shadow: var(--shadow);
   animation: rise .35s ease-out;
 }
@@ -95,16 +101,14 @@ label { font-size: .9rem; font-weight: 500; }
 button.link { width: auto; padding: 0; border: 0; background: none; box-shadow: none; color: var(--err); font-weight: 500; text-decoration: underline; }
 button.link:hover { transform: none; }
 
-/* The switcher floats in the corner; reserve its height so page content
-   can never slide underneath it. */
-body.has-lang { padding-top: 3.5rem; }
-.lang { position: absolute; top: var(--space); right: var(--space); display: flex; gap: var(--space-sm); font-size: .85rem; }
+/* The switcher lives in the top row's corner; see body for how it yields. */
+.lang { grid-row: 1; place-self: start end; display: flex; flex-wrap: wrap; justify-content: end; gap: var(--space-sm); font-size: .85rem; }
 .lang a { padding: .25rem .6rem; border-radius: 999px; text-decoration: none; color: inherit; background: var(--card); }
 .lang a:hover { color: var(--accent); }
 .lang a[aria-current] { color: var(--accent-ink); background: linear-gradient(135deg, var(--accent), var(--accent-2)); font-weight: 600; }
 </style>
 </head>
-<body{{if .L.Options}} class="has-lang"{{end}}>
+<body>
 <main>
 {{template "content" .}}
 </main>
